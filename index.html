@@ -81,8 +81,15 @@ header{display:flex;align-items:center;justify-content:space-between;padding:14p
 .arrow{color:var(--muted);font-weight:800}
 .details-btn{margin-top:16px;width:100%;text-align:left;padding:12px 14px;border-radius:12px;background:var(--surface);border:1.5px solid var(--line);display:flex;justify-content:space-between;font-weight:600;font-size:14px;color:var(--muted)}
 .details-btn b{color:var(--text);font-weight:600}
-.details{display:none;padding-top:4px}
-.details.open{display:block}
+.details{position:fixed;left:0;right:0;bottom:0;z-index:20;max-width:480px;margin:0 auto;background:var(--bg);border-radius:20px 20px 0 0;
+  padding:8px max(16px,env(safe-area-inset-right)) max(16px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left));
+  box-shadow:0 -8px 30px rgba(0,0,0,.18);transform:translateY(105%);transition:transform .22s ease;max-height:85dvh;overflow-y:auto}
+.details.open{transform:none}
+.details .grab{width:40px;height:4px;border-radius:4px;background:var(--line);margin:4px auto 6px}
+.backdrop{position:fixed;inset:0;z-index:19;background:rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:opacity .2s}
+.backdrop.open{opacity:1;pointer-events:auto}
+.field input[type=date]{min-height:48px;-webkit-appearance:none;appearance:none}
+.sync{cursor:pointer}
 .field{display:flex;flex-direction:column;gap:6px;margin-top:12px}
 .field input{font:inherit;font-size:15px;padding:12px 14px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);color:var(--text);width:100%}
 .field input:focus{outline:none;border-color:var(--accent)}
@@ -174,11 +181,14 @@ header{display:flex;align-items:center;justify-content:space-between;padding:14p
       <p class="hint" id="hint"></p>
 
       <button class="details-btn" id="detBtn"><span>Más detalles</span><b id="detSum">Hoy · Tarjeta</b></button>
+      <div class="backdrop" id="backdrop"></div>
       <div class="details" id="details">
+        <div class="grab"></div>
         <div class="field"><div class="label" style="margin:0 2px">Fecha</div><input type="date" id="fecha"></div>
         <div class="label">Método</div>
         <div class="chips" id="metodos"></div>
         <div class="field"><div class="label" style="margin:0 2px">Descripción</div><input type="text" id="nota" placeholder="Opcional, p. ej. cena con amigos"></div>
+        <button class="primary" id="detOk">Listo</button>
       </div>
     </div>
 
@@ -324,7 +334,8 @@ document.addEventListener('keydown',e=>{
   else if(e.key==='Backspace')press('⌫');
   else if(e.key==='Enter'&&!$('save').disabled)$('save').click();
 });
-$('detBtn').onclick=()=>$('details').classList.toggle('open');
+function detalles(abrir){$('details').classList.toggle('open',abrir);$('backdrop').classList.toggle('open',abrir);if(!abrir)document.activeElement.blur()}
+$('detBtn').onclick=()=>detalles(true);$('backdrop').onclick=()=>detalles(false);$('detOk').onclick=()=>detalles(false);
 $('fecha').onchange=render;$('nota').oninput=render;
 
 // ---------- Datos y sincronización ----------
@@ -345,18 +356,20 @@ $('save').onclick=()=>{
   const m={id:uid(),f:$('fecha').value||today(),t:S.tipo,i:val,cat:S.tipo==='Traspaso'?'':S.cat,acc,dest,d:$('nota').value.trim(),met:S.met};
   cola.push(m);guardaCola();lastSaved=m;
   prefs[S.tipo]={acc:S.acc,met:S.met};savePrefs();
-  S.amt='';S.cat=null;S.showAll=false;$('nota').value='';$('fecha').value=today();$('details').classList.remove('open');
+  S.amt='';S.cat=null;S.showAll=false;$('nota').value='';$('fecha').value=today();detalles(false);
   render();renderList();
   toast(`${m.t} de ${fmt(val)} € guardado`,true);
   clearTimeout(timer);timer=setTimeout(enviar,4000);   // margen para deshacer antes de enviar
 };
 
 let enviando=false;
+const firma=m=>[m.f,m.t,Number(m.i).toFixed(2),m.cat||'',m.acc,m.d||''].join('|');
+const cuenta=lista=>{const c={};(lista||[]).forEach(m=>{const k=firma(m);c[k]=(c[k]||0)+1});return c};
 async function enviar(){
   if(enviando||!cola.length||!cfg.url)return;
   if(!navigator.onLine){estado();return}
   enviando=true;estado();
-  const lote=cola.slice();
+  const lote=cola.slice(),antes=cuenta(datos&&datos.ultimos);
   try{
     const r=await fetch(cfg.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},body:JSON.stringify({clave:cfg.clave,movimientos:lote})});
     const j=await r.json();
@@ -364,19 +377,28 @@ async function enviar(){
     const ok=new Set(j.guardados);
     cola=cola.filter(m=>!ok.has(m.id));guardaCola();
     if(lastSaved&&ok.has(lastSaved.id))lastSaved=null;
-    enviando=false;cargar();
+    enviando=false;await cargar();
   }catch(e){
-    enviando=false;estado(e.message==='Clave incorrecta'?'Clave incorrecta':null);
+    enviando=false;
+    if(e.message==='Clave incorrecta'){estado('Clave incorrecta');return}
+    // A veces la hoja guarda la fila pero la respuesta no llega: lo comprobamos leyendo la hoja.
+    if(await cargar()){
+      const despues=cuenta(datos.ultimos),nuevos={};
+      Object.keys(despues).forEach(k=>nuevos[k]=despues[k]-(antes[k]||0));
+      cola=cola.filter(m=>{const k=firma(m);if(lote.includes(m)&&nuevos[k]>0){nuevos[k]--;return false}return true});
+      guardaCola();renderList();
+    }
+    if(cola.length)estado('Sin enviar · toca para reintentar');
   }
 }
 async function cargar(){
-  if(!cfg.url||!navigator.onLine){estado();return}
+  if(!cfg.url||!navigator.onLine){estado();return false}
   try{
-    const r=await fetch(cfg.url+'?clave='+encodeURIComponent(cfg.clave));
+    const r=await fetch(cfg.url+'?clave='+encodeURIComponent(cfg.clave)+'&t='+Date.now(),{cache:'no-store'});
     const j=await r.json();
     if(!j.ok)throw new Error(j.error);
-    j.hora=Date.now();datos=j;LS.set('rr-datos',j);renderList();estado();
-  }catch(e){estado(e.message==='Clave incorrecta'?'Clave incorrecta':null)}
+    j.hora=Date.now();datos=j;LS.set('rr-datos',j);renderList();estado();return true;
+  }catch(e){estado(e.message==='Clave incorrecta'?'Clave incorrecta':'Sin conexión con la hoja');return false}
 }
 function estado(err){
   const el=$('sync');let txt='',cls='';
@@ -470,7 +492,8 @@ $('theme').onclick=()=>{
   r.dataset.theme=dark?'light':'dark';LS.set('rr-tema',r.dataset.theme);
 };
 addEventListener('online',()=>{enviar();cargar()});addEventListener('offline',()=>estado());
-document.addEventListener('visibilitychange',()=>{if(!document.hidden)enviar()});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){cola.length?enviar():cargar()}});
+$('sync').onclick=()=>{cola.length?enviar():cargar();toast('Actualizando…')};
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 
 render();renderList();estado();
