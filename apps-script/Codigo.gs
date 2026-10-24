@@ -28,7 +28,9 @@ function doGet(e) {
 
   const hoja = ss.getSheetByName('Movimientos');
   const n = hoja.getLastRow() - 1;
-  const filas = n > 0 ? hoja.getRange(2, 1, n, 8).getValues().filter(r => r[0] && r[1]) : [];
+  // Cada fila lleva al final su número de fila en la hoja, para poder borrarla desde la app.
+  const filas = n > 0 ? hoja.getRange(2, 1, n, 8).getValues()
+    .map((r, k) => r.concat(k + 2)).filter(r => r[0] && r[1]) : [];
 
   const hoy = new Date();
   const mes = Utilities.formatDate(hoy, tz, 'yyyy-MM');
@@ -43,7 +45,7 @@ function doGet(e) {
 
   const ultimos = filas.slice(-20).reverse().map(r => ({
     f: Utilities.formatDate(new Date(r[0]), tz, 'yyyy-MM-dd'),
-    t: r[1], i: Number(r[2]), cat: r[3], d: r[4], acc: r[5], dest: r[6], met: r[7]
+    t: r[1], i: Number(r[2]), cat: r[3], d: r[4], acc: r[5], dest: r[6], met: r[7], fila: r[8]
   }));
 
   return json_({ ok: true, saldos, mes: { ingresos, gastos, ahorro: ingresos - gastos }, ultimos });
@@ -59,7 +61,20 @@ function doPost(e) {
   lock.waitLock(10000);
   try {
     const cache = CacheService.getScriptCache();
-    const hoja = SpreadsheetApp.getActive().getSheetByName('Movimientos');
+    const ss = SpreadsheetApp.getActive();
+    const hoja = ss.getSheetByName('Movimientos');
+
+    // Borrado: solo si la fila sigue siendo el mismo movimiento que ve la app.
+    if (body.borrar) {
+      const b = body.borrar, fila = Number(b.fila);
+      if (!(fila >= 2) || fila > hoja.getLastRow()) return json_({ ok: false, error: 'No encontrado' });
+      const r = hoja.getRange(fila, 1, 1, 8).getValues()[0];
+      const mismo = Utilities.formatDate(new Date(r[0]), ss.getSpreadsheetTimeZone(), 'yyyy-MM-dd') === b.f &&
+        r[1] === b.t && Math.abs(Number(r[2]) - Number(b.i)) < 0.005 && String(r[4]) === String(b.d || '');
+      if (!mismo) return json_({ ok: false, error: 'La hoja ha cambiado, actualiza y prueba otra vez' });
+      hoja.deleteRow(fila);
+      return json_({ ok: true, borrado: fila });
+    }
     const guardados = [];
 
     (body.movimientos || []).forEach(m => {

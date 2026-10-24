@@ -140,6 +140,17 @@ header{display:flex;align-items:center;justify-content:space-between;padding:14p
 #ajustes p{color:var(--muted);font-size:14px;line-height:1.5}
 .primary{margin-top:16px;width:100%;height:52px;border-radius:14px;background:var(--accent);color:var(--accent-ink);font-weight:800;font-size:16px}
 .mov.pend{opacity:.7}
+.mov{cursor:pointer}.mov:active{background:var(--surface-2)}
+.mov.borrando{opacity:.4;pointer-events:none}
+.ms-amt{font-size:34px;font-weight:800;color:var(--c);margin:8px 2px 2px;font-variant-numeric:tabular-nums}
+.ms-tit{font-size:17px;font-weight:700;margin:0 2px}
+.ms-rows{background:var(--surface);border:1px solid var(--line);border-radius:14px;margin-top:14px}
+.ms-rows div{display:flex;justify-content:space-between;gap:12px;padding:11px 14px;font-size:14px;border-top:1px solid var(--line)}
+.ms-rows div:first-child{border-top:0}
+.ms-rows span{color:var(--muted)}.ms-rows b{font-weight:600;text-align:right}
+.danger{margin-top:16px;width:100%;height:52px;border-radius:14px;background:var(--gasto-soft);color:var(--gasto);font-weight:800;font-size:16px}
+.danger.confirm{background:var(--gasto);color:#fff}
+.ghost{margin-top:8px;width:100%;height:46px;border-radius:14px;font-weight:700;color:var(--muted)}
 .empty-msg{padding:22px 16px;color:var(--muted);font-size:14px;text-align:center}
 </style>
 </head>
@@ -205,7 +216,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:14p
     </div>
     <div class="label">Saldos</div>
     <div class="accounts" id="saldos"></div>
-    <div class="label">Últimos movimientos</div>
+    <div class="label">Últimos movimientos · toca uno para verlo o eliminarlo</div>
     <div class="list" id="list"></div>
     <p class="demo" id="hora"></p>
   </section>
@@ -218,6 +229,15 @@ header{display:flex;align-items:center;justify-content:space-between;padding:14p
     <button class="primary" id="cfgSave">Guardar y probar</button>
     <p id="cfgMsg"></p>
   </section>
+</div>
+<div class="backdrop" id="msBack"></div>
+<div class="details" id="movSheet">
+  <div class="grab"></div>
+  <div class="ms-amt" id="msAmt"></div>
+  <div class="ms-tit" id="msTit"></div>
+  <div class="ms-rows" id="msRows"></div>
+  <button class="danger" id="msDel">Eliminar movimiento</button>
+  <button class="ghost" id="msClose">Cerrar</button>
 </div>
 <div class="toast" id="toast"></div>
 
@@ -457,10 +477,52 @@ function renderList(){
     r.style.setProperty('--c',`var(--${c})`);r.style.setProperty('--cs',`var(--${c}-soft)`);
     r.innerHTML=`<div class="dot">${m.t[0]}</div><div class="info"><b></b><span></span></div><div class="amt">${sign}${fmt(m.i)} €</div>`;
     r.querySelector('b').textContent=title||'';r.querySelector('span').textContent=sub;
+    r._m=m;r.onclick=()=>abrirMov(m);
     L.appendChild(r);
   });
   $('hora').textContent=datos?'Actualizado '+new Date(datos.hora).toLocaleString('es-ES',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'';
 }
+
+// ---------- Ver y eliminar un movimiento ----------
+let movSel=null,confirmar=false;
+function abrirMov(m){
+  movSel=m;confirmar=false;
+  const c=TIPOS[m.t].c,sh=$('movSheet');
+  sh.style.setProperty('--c',`var(--${c})`);
+  const sign=m.t==='Gasto'?'−':(m.t==='Ingreso'||m.t==='Reembolso')?'+':'';
+  $('msAmt').textContent=`${sign}${fmt(m.i)} €`;
+  $('msTit').textContent=m.t==='Traspaso'?`${m.acc} → ${m.dest}`:(m.cat||m.t);
+  const filas=[['Tipo',m.t],['Fecha',new Date(m.f+'T12:00').toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'})],
+    [m.t==='Traspaso'||m.t==='Inversión'?'Desde':'Cuenta',m.acc],m.dest?['Hacia',m.dest]:null,['Método',m.met],['Descripción',m.d],
+    m.pend?['Estado','Pendiente de enviar']:null].filter(x=>x&&x[1]);
+  const R=$('msRows');R.innerHTML='';
+  filas.forEach(([k,v])=>{const d=document.createElement('div');const a=document.createElement('span');a.textContent=k;const b=document.createElement('b');b.textContent=v;d.append(a,b);R.appendChild(d)});
+  $('msDel').textContent='Eliminar movimiento';$('msDel').classList.remove('confirm');
+  sh.classList.add('open');$('msBack').classList.add('open');
+}
+function cerrarMov(){$('movSheet').classList.remove('open');$('msBack').classList.remove('open');movSel=null}
+$('msBack').onclick=cerrarMov;$('msClose').onclick=cerrarMov;
+$('msDel').onclick=async()=>{
+  const m=movSel;if(!m)return;
+  if(!confirmar){confirmar=true;$('msDel').textContent='Toca otra vez para eliminar';$('msDel').classList.add('confirm');return}
+  cerrarMov();
+  if(m.pend){cola=cola.filter(x=>x.id!==m.id);guardaCola();renderList();toast('Eliminado');return}
+  if(!m.fila){toast('Actualiza el script de la hoja para poder borrar');return}
+  if(!navigator.onLine){toast('Sin conexión: prueba cuando tengas cobertura');return}
+  const fila=[...document.querySelectorAll('.mov')].find(el=>el._m===m);if(fila)fila.classList.add('borrando');
+  try{
+    const r=await fetch(cfg.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({clave:cfg.clave,borrar:{fila:m.fila,f:m.f,t:m.t,i:m.i,d:m.d||''}})});
+    const j=await r.json();
+    if(!j.ok)throw new Error(j.error);
+    toast('Eliminado de tu hoja');await cargar();
+  }catch(e){
+    // Si la respuesta no llega, comprobamos en la hoja si se borró igualmente.
+    const leido=await cargar();
+    const sigue=!leido||datos.ultimos.some(x=>x.fila===m.fila&&firma(x)===firma(m));
+    toast(!sigue?'Eliminado de tu hoja':(e.message&&e.message!=='Failed to fetch'?e.message:'No se pudo eliminar, prueba otra vez'));
+  }
+};
 
 // ---------- Pestañas y ajustes ----------
 function tab(n){
