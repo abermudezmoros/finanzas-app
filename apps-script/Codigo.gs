@@ -32,23 +32,33 @@ function doGet(e) {
   const filas = n > 0 ? hoja.getRange(2, 1, n, 8).getValues()
     .map((r, k) => r.concat(k + 2)).filter(r => r[0] && r[1]) : [];
 
-  const hoy = new Date();
-  const mes = Utilities.formatDate(hoy, tz, 'yyyy-MM');
-  let ingresos = 0, gastos = 0;
+  // Ciclo actual: desde la última nómina cobrada en BBVA (la de Cobee no corta el ciclo).
+  let inicio = null;
   filas.forEach(r => {
-    if (Utilities.formatDate(new Date(r[0]), tz, 'yyyy-MM') !== mes) return;
+    if (r[1] === 'Ingreso' && r[3] === 'Nómina' && r[5] === 'BBVA') {
+      const d = new Date(r[0]);
+      if (!inicio || d > inicio) inicio = d;
+    }
+  });
+  let ingresos = 0, gastos = 0, ahorro = 0, inversion = 0;
+  filas.forEach(r => {
+    if (inicio && new Date(r[0]) < inicio) return;
     const imp = Number(r[2]) || 0;
     if (r[1] === 'Ingreso' && r[3] !== 'Saveback') ingresos += imp;
     if (r[1] === 'Gasto') gastos += imp;
     if (r[1] === 'Reembolso') gastos -= imp;
+    if (r[1] === 'Traspaso' && r[6] === 'TR Ahorro') ahorro += imp;
+    if (r[1] === 'Traspaso' && r[5] === 'TR Ahorro') ahorro -= imp;
+    if (r[1] === 'Inversión') inversion += imp;
   });
+  const desde = inicio ? Utilities.formatDate(inicio, tz, 'yyyy-MM-dd') : '';
 
   const ultimos = filas.slice(-20).reverse().map(r => ({
     f: Utilities.formatDate(new Date(r[0]), tz, 'yyyy-MM-dd'),
     t: r[1], i: Number(r[2]), cat: r[3], d: r[4], acc: r[5], dest: r[6], met: r[7], fila: r[8]
   }));
 
-  return json_({ ok: true, saldos, mes: { ingresos, gastos, ahorro: ingresos - gastos }, ultimos });
+  return json_({ ok: true, saldos, mes: { desde, ingresos, gastos, ahorro, inversion }, ultimos });
 }
 
 // Escritura: recibe uno o varios movimientos (la app los manda en cola si no había cobertura).

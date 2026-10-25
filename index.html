@@ -446,22 +446,34 @@ function delta(m,s,saldos){
   else{saldos[m.acc]=(saldos[m.acc]||0)-v;saldos[m.dest||'Cartera']=(saldos[m.dest||'Cartera']||0)+v}
 }
 function renderList(){
-  const mes=today().slice(0,7);
-  $('mesTit').textContent=new Date(mes+'-15T12:00').toLocaleDateString('es-ES',{month:'long',year:'numeric'});
+  let desde=datos&&datos.mes&&datos.mes.desde;
+  // Si la nómina de BBVA nueva aún está en cola, el ciclo nuevo empieza con ella.
+  const nueva=cola.filter(m=>m.t==='Ingreso'&&m.cat==='Nómina'&&m.acc==='BBVA').map(m=>m.f).sort().pop();
+  const reinicio=nueva&&(!desde||nueva>desde);
+  if(reinicio)desde=nueva;
+  $('mesTit').textContent=desde?'Ciclo desde el '+new Date(desde+'T12:00').toLocaleDateString('es-ES',{day:'numeric',month:'long'}):'Ciclo actual';
   if(!datos&&!cola.length){
     $('kpis').innerHTML='';$('saldos').innerHTML='';
     $('list').innerHTML=`<div class="empty-msg">${cfg.url?'Cargando datos de tu hoja…':'Conecta la app con tu hoja en Ajustes.'}</div>`;
     return;
   }
   const saldos=Object.assign({},datos?datos.saldos:{});
-  let ing=datos?datos.mes.ingresos:0,gas=datos?datos.mes.gastos:0;
+  const mes=(datos&&datos.mes)||{};
+  let ing=0,gas=0,aho=0,inv=0;
+  if(!reinicio){ing=mes.ingresos||0;gas=mes.gastos||0;aho=mes.inversion!=null?(mes.ahorro||0):0;inv=mes.inversion||0}
   cola.forEach(m=>{
     delta(m,1,saldos);
-    if(m.f.slice(0,7)===mes){if(m.t==='Ingreso'&&m.cat!=='Saveback')ing+=m.i;if(m.t==='Gasto')gas+=m.i;if(m.t==='Reembolso')gas-=m.i}
+    if(desde&&m.f<desde)return;
+    if(m.t==='Ingreso'&&m.cat!=='Saveback')ing+=m.i;
+    if(m.t==='Gasto')gas+=m.i;
+    if(m.t==='Reembolso')gas-=m.i;
+    if(m.t==='Traspaso'&&m.dest==='TR Ahorro')aho+=m.i;
+    if(m.t==='Traspaso'&&m.acc==='TR Ahorro')aho-=m.i;
+    if(m.t==='Inversión')inv+=m.i;
   });
   $('kpis').innerHTML=`<div class="kpi"><span>Ingresos</span><b style="color:var(--ingreso)">${fmt(ing)}</b></div>
-  <div class="kpi"><span>Gastos</span><b style="color:var(--gasto)">${fmt(gas)}</b></div>
-  <div class="kpi"><span>Ahorro</span><b>${fmt(ing-gas)}</b></div>`;
+  <div class="kpi"><span>Gasto real</span><b style="color:var(--gasto)">${fmt(gas)}</b></div>
+  <div class="kpi"><span>Sobrante</span><b style="color:var(${ing-gas-aho-inv<0?'--gasto':'--ingreso'})">${fmt(ing-gas-aho-inv)}</b></div>`;
   $('saldos').innerHTML=Object.entries(saldos).map(([k,v])=>`<div class="acc${k==='Cartera'?' wide':''}"><span>${k}${k==='Cartera'?' (aportado)':''}</span><b>${fmt(v)} €</b></div>`).join('');
   const L=$('list');L.innerHTML='';let lastDay='';
   const todos=cola.map(m=>Object.assign({pend:true},m)).reverse().concat(datos?datos.ultimos:[]);
