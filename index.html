@@ -6,7 +6,12 @@
 <title>Finanzas</title>
 <meta name="theme-color" content="#F4F2EE" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#111317" media="(prefers-color-scheme: dark)">
-<link rel="manifest" href="manifest.webmanifest">
+<script>
+// En iPhone, la app de la pantalla de inicio no comparte datos con Safari. Si se abre con un enlace de conexión,
+// se quita el manifest para que el icono guarde el enlace entero (con la clave) y se conecte al abrirlo.
+if(!(/iP(hone|ad|od)/.test(navigator.userAgent)||(/Mac/.test(navigator.platform)&&navigator.maxTouchPoints>1))||!/clave=/.test(location.hash))
+  document.write('<link rel="manifest" href="manifest.webmanifest">');
+</script>
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon-192.png">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -299,7 +304,11 @@ svg.graf .pto{fill:var(--gasto);stroke:var(--surface);stroke-width:2}
 
   <section id="ajustes">
     <div class="label">Conexión con tu hoja</div>
-    <p>Pega la URL de la aplicación web de Apps Script (acaba en /exec) y la clave que guardaste como CLAVE. Solo se guardan en este móvil.</p>
+    <p>En tu hoja, menú <b>Finanzas &gt; Conectar el móvil</b>. Escanea el código con la cámara o pega aquí el enlace. Solo se guarda en este móvil.</p>
+    <div class="field"><div class="label" style="margin:0 2px">Enlace de conexión</div><input id="cfgLink" type="url" inputmode="url" autocomplete="off" placeholder="https://abermudezmoros.github.io/finanzas-app/#url=…"></div>
+    <button class="primary" id="cfgLinkOk">Conectar</button>
+    <p id="cfgLinkMsg"></p>
+    <div class="label" style="margin-top:22px">O a mano</div>
     <div class="field"><div class="label" style="margin:0 2px">URL</div><input id="cfgUrl" type="url" inputmode="url" autocomplete="off" placeholder="https://script.google.com/macros/s/…/exec"></div>
     <div class="field"><div class="label" style="margin:0 2px">Clave</div><input id="cfgClave" type="password" autocomplete="off"></div>
     <button class="primary" id="cfgSave">Guardar y probar</button>
@@ -336,7 +345,7 @@ const TOP=8;
 let CTAS=[{n:'BBVA',uso:'Día a día',ciclo:true,activa:true},{n:'Trade Republic',uso:'Día a día',ciclo:false,activa:true},
   {n:'TR Ahorro',uso:'Ahorro',ciclo:false,activa:true},{n:'Cobee',uso:'Día a día',ciclo:false,activa:true},
   {n:'Cartera',uso:'Inversión',ciclo:false,activa:true}];
-let CUENTAS=[],CARTERA='Cartera';
+let CUENTAS=[],CARTERA='Cartera',HAY_INV=true;
 const usoDe=n=>(CTAS.find(c=>c.n===n)||{}).uso;
 function aplicaConfig(conf){
   if(conf&&conf.cuentas&&conf.cuentas.length)CTAS=conf.cuentas;
@@ -349,7 +358,7 @@ function aplicaConfig(conf){
   }
   CUENTAS=CTAS.filter(c=>c.activa&&c.uso!=='Inversión').map(c=>c.n);
   const cart=CTAS.find(c=>c.activa&&c.uso==='Inversión')||CTAS.find(c=>c.uso==='Inversión');
-  CARTERA=cart?cart.n:'Cartera';
+  CARTERA=cart?cart.n:'Cartera';HAY_INV=!!cart;
   // Cuenta por defecto: la de la nómina principal; para invertir y traspasar, la siguiente del día a día.
   const diario=CTAS.filter(c=>c.activa&&c.uso==='Día a día').map(c=>c.n);
   const principal=(CTAS.find(c=>c.activa&&c.ciclo)||{}).n||diario[0]||CUENTAS[0];
@@ -384,6 +393,7 @@ function render(){
   // tipos
   const tp=$('tipos');tp.innerHTML='';
   Object.keys(TIPOS).forEach(k=>{
+    if(k==='Inversión'&&!HAY_INV)return;
     const b=chip(k,k===S.tipo,()=>selectTipo(k),'tipo');
     b.style.setProperty('--c',`var(--${TIPOS[k].c})`);b.style.setProperty('--cs',`var(--${TIPOS[k].c}-soft)`);
     tp.appendChild(b);
@@ -885,16 +895,29 @@ function tab(n){
 }
 document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>tab(b.dataset.tab));
 $('cfgBtn').onclick=()=>{$('cfgUrl').value=cfg.url;$('cfgClave').value=cfg.clave;$('cfgMsg').textContent='';tab('ajustes')};
-$('cfgSave').onclick=async()=>{
-  const url=$('cfgUrl').value.trim(),clave=$('cfgClave').value.trim(),msg=$('cfgMsg');
-  if(!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(url)){msg.textContent='La URL debe empezar por https://script.google.com/macros/s/ y acabar en /exec';return}
+async function conectar(url,clave,msg,despues){
+  if(!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(url)){msg.textContent='La URL debe empezar por https://script.google.com/macros/s/ y acabar en /exec';return false}
   msg.textContent='Probando conexión…';
   try{
     const j=await (await fetch(url+'?clave='+encodeURIComponent(clave))).json();
-    if(!j.ok){msg.textContent=j.error==='Clave incorrecta'?'La clave no coincide con la de Apps Script.':'Error: '+j.error;return}
+    if(!j.ok){msg.textContent=j.error==='Clave incorrecta'?'La clave no coincide con la de tu hoja.':'Error: '+j.error;return false}
     cfg={url,clave};LS.set('rr-cfg',cfg);j.hora=Date.now();datos=j;LS.set('rr-datos',j);conConfig();
-    msg.textContent='Conectado ✓';estado();enviar();setTimeout(()=>tab('nuevo'),700);
-  }catch(e){msg.textContent='No se pudo conectar. Revisa la URL y tu conexión.'}
+    msg.textContent='Conectado ✓';estado();enviar();renderList();
+    if(despues!==false)setTimeout(()=>tab('nuevo'),700);
+    return true;
+  }catch(e){msg.textContent='No se pudo conectar. Revisa el enlace y tu conexión.';return false}
+}
+// Enlace de conexión: https://…/finanzas-app/#url=…&clave=… (lo genera la hoja en Finanzas > Conectar el móvil).
+function leeEnlace(txt){
+  const i=String(txt||'').indexOf('#');if(i<0)return null;
+  const p=new URLSearchParams(String(txt).slice(i+1));
+  return p.get('url')&&p.get('clave')?{url:p.get('url').trim(),clave:p.get('clave').trim()}:null;
+}
+$('cfgSave').onclick=()=>conectar($('cfgUrl').value.trim(),$('cfgClave').value.trim(),$('cfgMsg'));
+$('cfgLinkOk').onclick=()=>{
+  const e=leeEnlace($('cfgLink').value);
+  if(!e){$('cfgLinkMsg').textContent='Ese no parece el enlace de conexión. Cópialo otra vez desde Finanzas > Conectar el móvil.';return}
+  conectar(e.url,e.clave,$('cfgLinkMsg'));
 };
 // tema
 const tema=LS.get('rr-tema',null);if(tema)document.documentElement.dataset.theme=tema;
@@ -922,7 +945,17 @@ function conConfig(){
 }
 aplicaConfig(datos&&datos.config);cfgVista=JSON.stringify((datos&&datos.config)||null);
 selectTipo('Gasto');renderList();estado();
-if(!cfg.url)$('cfgBtn').click();else{enviar();cargar()}
+const enlace=leeEnlace(location.href);
+const instalada=matchMedia('(display-mode: standalone)').matches||navigator.standalone;
+if(enlace&&(enlace.url!==cfg.url||enlace.clave!==cfg.clave)){
+  $('cfgBtn').click();$('cfgLink').value=location.href;
+  conectar(enlace.url,enlace.clave,$('cfgLinkMsg'),false).then(ok=>{
+    if(!ok)return;
+    // Ya instalada, el enlace sobra en la barra. En el navegador se deja, por si se añade a la pantalla de inicio.
+    if(instalada)history.replaceState(null,'',location.pathname);
+    else $('cfgLinkMsg').textContent='Conectado ✓ Ahora añádela a la pantalla de inicio: en iPhone, botón Compartir > Añadir a pantalla de inicio; en Android, menú ⋮ > Añadir a pantalla de inicio.';
+  });
+}else if(!cfg.url)$('cfgBtn').click();else{enviar();cargar()}
 </script>
 </body>
 </html>
