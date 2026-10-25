@@ -22,8 +22,48 @@ const GASTOS_POR_DEFECTO = ['Restaurantes', 'Supermercado', 'Ocio', 'Deporte', '
   'Viajes', 'Suscripciones', 'Compras y hogar', 'Regalos', 'Vivienda', 'Formación', 'Impuestos', 'Otros'];
 
 function onOpen() {
-  SpreadsheetApp.getUi().createMenu('Finanzas').addItem('Aplicar diseño', 'aplicarDiseno')
-    .addItem('Renombrar cuenta', 'renombrarCuenta').addToUi();
+  SpreadsheetApp.getUi().createMenu('Finanzas').addItem('Conectar el móvil', 'conectarMovil').addSeparator()
+    .addItem('Renombrar cuenta', 'renombrarCuenta').addItem('Aplicar diseño', 'aplicarDiseno')
+    .addItem('Crear o reparar las pestañas', 'prepararHoja').addToUi();
+}
+
+// ---------- Hoja nueva ----------
+// Crea las pestañas que falten con valores de ejemplo (sirve para montar la plantilla desde una hoja vacía)
+// y aplica el diseño. En una hoja que ya tiene datos no borra nada: solo añade lo que falte.
+function prepararHoja() {
+  const ss = SpreadsheetApp.getActive();
+  let mov = ss.getSheetByName('Movimientos');
+  if (!mov) {
+    mov = ss.insertSheet('Movimientos');
+    mov.getRange('A1:H1').setValues([['Fecha', 'Tipo', 'Importe', 'Categoría', 'Descripción', 'Cuenta', 'Destino', 'Método']]);
+  }
+  let cu = ss.getSheetByName('Cuentas');
+  if (!cu) {
+    cu = ss.insertSheet('Cuentas');
+    cu.getRange('A4:F4').setValues([['Cuenta', 'Uso', 'Saldo inicial', 'Saldo actual', 'Nómina abre ciclo', 'Activa']]);
+    cu.getRange('A5:F7').setValues([['Banco', 'Día a día', 0, '', 'Sí', 'Sí'], ['Ahorro', 'Ahorro', 0, '', 'No', 'Sí'],
+      ['Inversiones', 'Inversión', 0, '', 'No', 'Sí']]);
+  }
+  if (!ss.getSheetByName('Categorías')) {
+    const ca = ss.insertSheet('Categorías');
+    const cols = {
+      A: ['Tipo'].concat(Object.keys(C.tipos)),
+      C: ['Gasto (y Reembolso)'].concat(GASTOS_POR_DEFECTO),
+      E: ['Ingreso', 'Nómina', 'Ventas', 'Intereses', 'Otros ingresos'],
+      G: ['Método', 'Tarjeta', 'Bizum', 'Transferencia', 'Domiciliado', 'Efectivo'],
+      M: ['Inversión', 'Fondos', 'Acciones', 'Otras inversiones']
+    };
+    Object.keys(cols).forEach(c => ca.getRange(c + '1:' + c + cols[c].length).setValues(cols[c].map(x => [x])));
+  }
+  if (!ss.getSheetByName('Resumen')) ss.insertSheet('Resumen', 0);
+  // La pestaña vacía que trae una hoja nueva («Hoja 1», «Sheet1»…) sobra.
+  ss.getSheets().forEach(sh => {
+    if (['Movimientos', 'Cuentas', 'Categorías', 'Resumen'].indexOf(sh.getName()) < 0 && sh.getLastRow() === 0) ss.deleteSheet(sh);
+  });
+  ['Resumen', 'Movimientos', 'Cuentas', 'Categorías'].forEach((n, i) => {
+    ss.setActiveSheet(ss.getSheetByName(n)); ss.moveActiveSheet(i + 1);
+  });
+  aplicarDiseno();
 }
 
 // Las hojas en español separan los argumentos con «;» (y las columnas de {…} con «\»).
@@ -126,6 +166,15 @@ function disenoMovimientos_(sh) {
   const cuentas = sh.getParent().getSheetByName('Cuentas').getRange('A' + CTA0 + ':A' + CTA1);
   sh.getRange(2, 6, N - 1, 2).setDataValidation(SpreadsheetApp.newDataValidation()
     .requireValueInRange(cuentas, true).setAllowInvalid(false).build());
+
+  // Tipo, Categoría y Método: desplegables con las listas de la hoja Categorías.
+  const cat = sh.getParent().getSheetByName('Categorías');
+  if (cat) {
+    const de = r => SpreadsheetApp.newDataValidation().requireValueInRange(cat.getRange(r), true).setAllowInvalid(true).build();
+    sh.getRange(2, 2, N - 1, 1).setDataValidation(de('A2:A6'));
+    sh.getRange(2, 4, N - 1, 1).setDataValidation(de('K2:K200'));
+    sh.getRange(2, 8, N - 1, 1).setDataValidation(de('G2:G60'));
+  }
 
   if (!sh.getFilter()) sh.getRange(1, 1, N, 8).createFilter();
 }
@@ -255,17 +304,24 @@ function disenoCategorias_(sh) {
   ['A', 'C', 'E', 'G', 'I', 'K', 'M'].forEach(col => {
     cabecera_(sh.getRange(col + '1'));
     sh.setColumnWidth(sh.getRange(col + '1').getColumn(), 170);
-    sh.getRange(col + '2:' + col + '24').setBackground(C.card);
+    sh.getRange(col + '2:' + col + '40').setBackground(C.card);
   });
   ['B', 'D', 'F', 'H', 'J', 'L'].forEach(col => sh.setColumnWidth(sh.getRange(col + '1').getColumn(), 16));
   sh.setRowHeight(1, 34);
-  sh.setRowHeights(2, 23, 26);
+  filas_(sh, 200);
+  sh.setRowHeights(2, 39, 26);
   sh.getRange('A10').setBackground(C.bg).setFontColor(C.muted).setFontStyle('italic').setWrap(true);
-  sh.getRange('A7:A24').setBackground(C.bg);
+  sh.getRange('A7:A40').setBackground(C.bg);
   // La columna Cuenta se rellena sola desde la hoja Cuentas (las cuentas se añaden allí).
   sh.getRange('I1').setValue('Cuenta');
   sh.getRange('I2:I24').clearContent();
   sh.getRange('I2').setFormula(F_('=IFERROR(FILTER(' + CU('A') + ',' + CU('A') + '<>""),"")'));
+  // «Todas las categorías» se rellena sola con las de Gasto, Ingreso e Inversión (es la lista del desplegable Categoría).
+  sh.getRange('K1').setValue('Todas las categorías');
+  sh.getRange('K2:K200').clearContent();
+  sh.getRange('K2').setFormula(F_('=IFERROR(FILTER({C2:C60;E2:E60;M2:M60},{C2:C60;E2:E60;M2:M60}<>""),"")'));
+  sh.getRange('A10').setValue('Para añadir una categoría, escríbela al final de su columna (Gasto, Ingreso o Inversión). ' +
+    '«Todas las categorías» y «Cuenta» se rellenan solas.');
 }
 
 // ---------- Resumen ----------

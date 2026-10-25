@@ -1,7 +1,10 @@
 /**
  * Puente entre la app "Registro rápido" y la hoja "Finanzas personales".
  * Se pega en Extensiones > Apps Script de la propia hoja.
- * La clave se guarda en Configuración del proyecto > Propiedades de script, con el nombre CLAVE.
+ * La clave se guarda en Configuración del proyecto > Propiedades de script, con el nombre CLAVE
+ * (Finanzas > Conectar el móvil la crea sola si no existe).
+ *
+ * @OnlyCurrentDoc  El script solo puede abrir esta hoja, ninguna otra del Drive.
  */
 
 const TIPOS = ['Gasto', 'Ingreso', 'Reembolso', 'Traspaso', 'Inversión'];
@@ -149,3 +152,107 @@ function doPost(e) {
     lock.releaseLock();
   }
 }
+
+// ---------- Conectar el móvil ----------
+// Muestra un QR y un enlace que abren la app con la URL y la clave ya puestas.
+const APP_URL = 'https://abermudezmoros.github.io/finanzas-app/';
+
+function claveOCrea_() {
+  const props = PropertiesService.getScriptProperties();
+  let clave = props.getProperty('CLAVE');
+  if (!clave) {
+    clave = Utilities.getUuid().replace(/-/g, '').slice(0, 20);
+    props.setProperty('CLAVE', clave);
+  }
+  return clave;
+}
+
+// URL de la aplicación web publicada (acaba en /exec): la que pegó el usuario o, si no, la que da Google.
+function urlApp_() {
+  const pegada = PropertiesService.getScriptProperties().getProperty('URL_APP');
+  if (pegada) return pegada;
+  let url = '';
+  try { url = ScriptApp.getService().getUrl() || ''; } catch (e) {}
+  return /^https:\/\/script\.google\.com\/.+\/exec$/.test(url) ? url : '';
+}
+
+function conectarMovil() {
+  const url = urlApp_();
+  const t = HtmlService.createTemplate(DIALOGO_CONECTAR);
+  t.url = url;
+  t.enlace = url ? APP_URL + '#url=' + encodeURIComponent(url) + '&clave=' + encodeURIComponent(claveOCrea_()) : '';
+  SpreadsheetApp.getUi().showModalDialog(t.evaluate().setWidth(460).setHeight(url ? 600 : 560), 'Conectar el móvil');
+}
+
+// La llama el cuadro de diálogo cuando el usuario pega la URL de la aplicación web.
+function guardarUrlApp(url) {
+  url = String(url || '').trim();
+  if (!/^https:\/\/script\.google\.com\/macros\/s\/.+\/exec$/.test(url)) {
+    throw new Error('La URL tiene que empezar por https://script.google.com/macros/s/ y acabar en /exec');
+  }
+  PropertiesService.getScriptProperties().setProperty('URL_APP', url);
+  return true;
+}
+function olvidarUrlApp() {
+  PropertiesService.getScriptProperties().deleteProperty('URL_APP');
+}
+
+// El cuadro de diálogo va aquí dentro para que el script siga siendo solo dos archivos.
+const DIALOGO_CONECTAR = `<!doctype html>
+<html><head><base target="_top">
+<style>
+  body{font-family:Arial,sans-serif;color:#1B1D21;font-size:14px;line-height:1.45;margin:0 4px}
+  h3{color:#1F3864;margin:4px 0 8px;font-size:15px}
+  ol{padding-left:20px;margin:6px 0}li{margin:6px 0}
+  #qr{display:flex;justify-content:center;margin:12px 0}
+  .aviso{background:#FFF6D6;border:1px solid #E8C766;border-radius:8px;padding:8px 10px;font-size:13px}
+  button{background:#1F3864;color:#fff;border:0;border-radius:8px;padding:9px 14px;font-size:14px;cursor:pointer}
+  input{width:100%;box-sizing:border-box;padding:8px;font-size:13px;margin:6px 0;border:1px solid #ccc;border-radius:6px}
+  .gris{color:#6B6F76;font-size:12px}a{color:#2D6CB5}
+</style></head><body>
+<? if (url) { ?>
+  <h3>1. Escanea este código con la cámara del móvil</h3>
+  <div id="qr"></div>
+  <h3>2. Se abrirá la app ya conectada</h3>
+  <ol>
+    <li><b>iPhone:</b> en Safari, botón Compartir (el cuadrado con la flecha) &gt; <b>Añadir a pantalla de inicio</b>.</li>
+    <li><b>Android:</b> en Chrome, menú ⋮ &gt; <b>Añadir a pantalla de inicio</b> (o <b>Instalar app</b>).</li>
+  </ol>
+  <p>¿No puedes escanearlo? Copia el enlace, mándatelo por WhatsApp o correo y ábrelo en el móvil.</p>
+  <button onclick="copiar()">Copiar enlace</button> <span id="ok" class="gris"></span>
+  <p class="aviso">Este enlace es la llave de tu hoja: quien lo tenga puede ver y apuntar tus movimientos. No se lo pases a nadie.</p>
+  <p class="gris"><a href="#" onclick="cambiar();return false">Cambiar la URL de la aplicación web</a></p>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <script>
+    var enlace = <?!= JSON.stringify(enlace) ?>;
+    try { new QRCode(document.getElementById('qr'), { text: enlace, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.L }); }
+    catch (e) { document.getElementById('qr').textContent = 'No se pudo dibujar el código: usa el botón Copiar enlace.'; }
+    function copiar() {
+      var t = document.createElement('textarea'); t.value = enlace; document.body.appendChild(t); t.select();
+      document.execCommand('copy'); t.remove(); document.getElementById('ok').textContent = 'Copiado ✓';
+    }
+    function cambiar() { google.script.run.withSuccessHandler(function(){ google.script.run.conectarMovil(); }).olvidarUrlApp(); }
+  </script>
+<? } else { ?>
+  <h3>Antes hay que publicar la hoja (solo una vez)</h3>
+  <ol>
+    <li>Menú <b>Extensiones &gt; Apps Script</b>. Se abre otra pestaña.</li>
+    <li>Arriba a la derecha, botón azul <b>Implementar &gt; Nueva implementación</b>.</li>
+    <li>Junto a «Seleccionar tipo», pulsa la rueda ⚙ y elige <b>Aplicación web</b>.</li>
+    <li>En «Quién tiene acceso» elige <b>Cualquier usuario</b>. Lo demás, tal cual.</li>
+    <li>Pulsa <b>Implementar</b>. Si pide permisos: <b>Autorizar acceso</b> &gt; tu cuenta &gt; <b>Configuración avanzada</b> &gt; <b>Ir a…</b> &gt; <b>Permitir</b>.</li>
+    <li>Debajo de «Aplicación web» verás una URL: pulsa <b>Copiar</b> y pégala aquí:</li>
+  </ol>
+  <input id="u" placeholder="https://script.google.com/macros/s/…/exec">
+  <button onclick="guardar()">Continuar</button> <span id="err" class="gris"></span>
+  <script>
+    function guardar() {
+      document.getElementById('err').textContent = 'Comprobando…';
+      google.script.run
+        .withSuccessHandler(function(){ google.script.run.conectarMovil(); })
+        .withFailureHandler(function(e){ document.getElementById('err').textContent = e.message; })
+        .guardarUrlApp(document.getElementById('u').value);
+    }
+  </script>
+<? } ?>
+</body></html>`;
