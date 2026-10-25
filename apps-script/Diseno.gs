@@ -18,11 +18,12 @@ const C = {
 const FUENTE = 'Manrope';
 const EUR = '#,##0.00 "€"';
 const EUR0 = '#,##0 "€"';
-const GASTOS = ['Restaurantes', 'Supermercado', 'Ocio', 'Deporte', 'Salud', 'Cuidado personal', 'Coche y moto',
+const GASTOS_POR_DEFECTO = ['Restaurantes', 'Supermercado', 'Ocio', 'Deporte', 'Salud', 'Cuidado personal', 'Coche y moto',
   'Viajes', 'Suscripciones', 'Compras y hogar', 'Regalos', 'Vivienda', 'Formación', 'Impuestos', 'Otros'];
 
 function onOpen() {
-  SpreadsheetApp.getUi().createMenu('Finanzas').addItem('Aplicar diseño', 'aplicarDiseno').addToUi();
+  SpreadsheetApp.getUi().createMenu('Finanzas').addItem('Aplicar diseño', 'aplicarDiseno')
+    .addItem('Renombrar cuenta', 'renombrarCuenta').addToUi();
 }
 
 // Las hojas en español separan los argumentos con «;» (y las columnas de {…} con «\»).
@@ -121,33 +122,130 @@ function disenoMovimientos_(sh) {
   });
   sh.setConditionalFormatRules(reglas);
 
+  // Cuenta y Destino: desplegable con las cuentas de la hoja Cuentas (una cuenta nueva aparece sola).
+  const cuentas = sh.getParent().getSheetByName('Cuentas').getRange('A' + CTA0 + ':A' + CTA1);
+  sh.getRange(2, 6, N - 1, 2).setDataValidation(SpreadsheetApp.newDataValidation()
+    .requireValueInRange(cuentas, true).setAllowInvalid(false).build());
+
   if (!sh.getFilter()) sh.getRange(1, 1, N, 8).createFilter();
 }
 
-// ---------- Cuentas (las filas 5 a 9 y la columna D las usa la app: no se mueven) ----------
+// ---------- Cuentas: la lista de cuentas de la que sale todo lo demás (A5:F24) ----------
+// Uso: «Día a día» cuenta para lo disponible y el sobrante, «Ahorro» recibe el ahorro, «Inversión» es la cartera.
+// «Nómina abre ciclo» = Sí en la cuenta donde cobras la nómina principal. «Activa» = No la oculta sin perder el historial.
+const CTA0 = 5, CTA1 = 24;
+const USOS = ['Día a día', 'Ahorro', 'Inversión'];
+const CU = c => 'Cuentas!$' + c + '$' + CTA0 + ':$' + c + '$' + CTA1;
+// Convierte el «Tipo» de la hoja antigua (Banco, Ahorro, Tarjeta restaurante, Inversión…) en un uso.
+function usoDe_(tipo) {
+  const t = String(tipo || '');
+  if (USOS.indexOf(t) >= 0) return t;
+  if (/ahorro/i.test(t)) return 'Ahorro';
+  if (/inversi/i.test(t)) return 'Inversión';
+  return 'Día a día';
+}
+function saldoActual_(r) {
+  const s = (col, tipo) => 'SUMIFS(Movimientos!$C:$C,Movimientos!$' + col + ':$' + col + ',$A' + r + ',Movimientos!$B:$B,"' + tipo + '")';
+  return '=IF($A' + r + '="","",C' + r + '+' + s('F', 'Ingreso') + '+' + s('F', 'Reembolso') + '-' + s('F', 'Gasto') +
+    '-' + s('F', 'Traspaso') + '-' + s('F', 'Inversión') + '+' + s('G', 'Traspaso') + '+' + s('G', 'Inversión') + ')';
+}
 function disenoCuentas_(sh) {
+  filas_(sh, CTA1 + 4); columnas_(sh, 9);
+  const n = CTA1 - CTA0 + 1;
+  const antigua = sh.getRange('B4').getValue() === 'Tipo';
+  if (sh.getRange('A11').getValue() === 'Disponible para gastar') sh.getRange('A11:D12').clearContent();
+  const sub = sh.getRange('A2').getValue() || 'Saldo inicial: lo que había en cada cuenta el día que empezaste a apuntar.';
+  const v = sh.getRange(CTA0, 1, n, 6).getValues();
+  const filas = v.map((x, i) => {
+    const r = CTA0 + i;
+    if (!x[0]) return ['', '', '', saldoActual_(r), '', ''];
+    const ciclo = x[4] === 'Sí' || x[4] === 'No' ? x[4] : (antigua && x[1] === 'Banco' ? 'Sí' : 'No');
+    return [x[0], usoDe_(x[1]), x[2] === '' ? 0 : x[2], saldoActual_(r), ciclo, x[5] === 'No' ? 'No' : 'Sí'];
+  });
+
+  sh.clearConditionalFormatRules();
+  sh.getRange(1, 1, sh.getMaxRows(), sh.getMaxColumns()).breakApart();
+  sh.getRange('G1:I' + sh.getMaxRows()).clear();
   base_(sh, C.bg);
   sh.setTabColor(C.tipos['Ingreso'][0]);
-  titulo_(sh, 'A', 'Cuentas', 'Saldo inicial a 25/08/2026. El saldo actual se calcula solo con los movimientos.');
-  sh.setColumnWidth(1, 210); sh.setColumnWidth(2, 200); sh.setColumnWidth(3, 140); sh.setColumnWidth(4, 150);
+  titulo_(sh, 'A', 'Cuentas', sub);
+  [210, 120, 130, 140, 150, 90, 230, 130].forEach((w, i) => sh.setColumnWidth(i + 1, w));
 
-  cabecera_(sh.getRange('A4:D4'));
+  sh.getRange('A4:F4').setValues([['Cuenta', 'Uso', 'Saldo inicial', 'Saldo actual', 'Nómina abre ciclo', 'Activa']]);
+  cabecera_(sh.getRange('A4:F4'));
   sh.setRowHeight(4, 34);
-  sh.setRowHeights(5, 8, 32);
-  const t = sh.getRange('A5:D9');
-  t.setBackground(C.card).setBorder(null, null, true, null, null, true, C.line, SpreadsheetApp.BorderStyle.SOLID);
-  sh.getRange('A5:A9').setFontWeight('bold');
-  sh.getRange('B5:B9').setFontColor(C.muted);
-  sh.getRange('C5:D9').setNumberFormat(EUR);
-  entrada_(sh.getRange('C5:C9'));
-  sh.getRange('D5:D9').setFontWeight('bold').setFontSize(11);
-  sh.getRange('A9:D9').setBackground(C.tipos['Inversión'][1]);
-  sh.getRange('C9').setBackground(C.input);
+  sh.setRowHeights(CTA0, n, 30);
+  sh.getRange(CTA0, 1, n, 6).clearFormat().setValues(filas.map(f => f.map(F_)));
+  const t = sh.getRange(CTA0, 1, n, 6);
+  t.setBackground(C.card).setFontWeight('normal').setFontSize(10).setFontColor(C.text)
+    .setBorder(null, null, true, null, null, true, C.line, SpreadsheetApp.BorderStyle.SOLID);
+  sh.getRange(CTA0, 1, n, 1).setFontWeight('bold');
+  sh.getRange(CTA0, 2, n, 1).setFontColor(C.muted);
+  sh.getRange(CTA0, 3, n, 2).setNumberFormat(EUR);
+  entrada_(sh.getRange(CTA0, 3, n, 1));
+  sh.getRange(CTA0, 4, n, 1).setFontWeight('bold').setFontSize(11);
+  sh.getRange(CTA0, 5, n, 2).setHorizontalAlignment('center');
 
-  const tot = sh.getRange('A11:D12');
-  tot.setBackground(C.card).setFontWeight('bold').setBorder(true, null, true, null, null, true, C.line, SpreadsheetApp.BorderStyle.SOLID);
-  sh.getRange('B11:B12').setFontWeight('normal').setFontColor(C.muted);
-  sh.getRange('D11:D12').setNumberFormat(EUR).setFontSize(12).setFontColor(C.navy);
+  const lista = l => SpreadsheetApp.newDataValidation().requireValueInList(l, true).setAllowInvalid(false).build();
+  sh.getRange(CTA0, 2, n, 1).setDataValidation(lista(USOS));
+  sh.getRange(CTA0, 5, n, 2).setDataValidation(lista(['Sí', 'No']));
+
+  // Inversión en morado; cuentas inactivas en gris.
+  const fila = sh.getRange(CTA0, 1, n, 6);
+  sh.setConditionalFormatRules([
+    SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=$F' + CTA0 + '="No"')
+      .setFontColor('#A5A8AD').setRanges([fila]).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=$B' + CTA0 + '="Inversión"')
+      .setBackground(C.tipos['Inversión'][1]).setRanges([fila]).build()
+  ]);
+
+  // Totales (los usa el Resumen)
+  sh.getRange('G4:H6').setValues([['Totales', ''],
+    ['Disponible para gastar', '=SUMIFS(' + CU('D') + ',' + CU('B') + ',"Día a día")'],
+    ['Total en cuentas (con ahorro)', '=SUMIFS(' + CU('D') + ',' + CU('B') + ',"Día a día")+SUMIFS(' + CU('D') + ',' + CU('B') + ',"Ahorro")']]
+    .map(f => f.map(F_)));
+  cabecera_(sh.getRange('G4:H4'));
+  sh.getRange('G5:H6').setBackground(C.card).setFontWeight('bold')
+    .setBorder(null, null, true, null, null, true, C.line, SpreadsheetApp.BorderStyle.SOLID);
+  sh.getRange('H5:H6').setNumberFormat(EUR).setFontSize(12).setFontColor(C.navy);
+
+  sh.getRange('G8:H16').merge().setWrap(true).setVerticalAlignment('top').setFontColor(C.muted).setValue(
+    'Para añadir una cuenta, escríbela en la primera fila libre y rellena el resto.\n\n' +
+    'Uso: «Día a día» (cuenta para lo disponible y el sobrante), «Ahorro» (los traspasos a ella son ahorro), «Inversión» (la cartera).\n\n' +
+    'Nómina abre ciclo: «Sí» en la cuenta donde cobras la nómina principal.\n\n' +
+    'Activa: «No» la quita de la app sin perder sus movimientos (por ejemplo, un banco que dejas).\n\n' +
+    'Para cambiar el nombre de una cuenta usa Finanzas > Renombrar cuenta: así se cambia también en los movimientos.');
+}
+
+// Cambia el nombre de una cuenta en Cuentas y en todos los movimientos (Cuenta y Destino).
+function renombrarCuenta() {
+  const ss = SpreadsheetApp.getActive(), ui = SpreadsheetApp.getUi();
+  const sh = ss.getSheetByName('Cuentas');
+  const nombres = sh.getRange(CTA0, 1, CTA1 - CTA0 + 1, 1).getValues().map(r => String(r[0])).filter(String);
+  const r1 = ui.prompt('Renombrar cuenta', '¿Qué cuenta quieres renombrar? Escribe su nombre exacto:\n' + nombres.join(', '), ui.ButtonSet.OK_CANCEL);
+  if (r1.getSelectedButton() !== ui.Button.OK) return;
+  const viejo = r1.getResponseText().trim();
+  const i = nombres.indexOf(viejo);
+  if (i < 0) { ui.alert('No hay ninguna cuenta llamada «' + viejo + '».'); return; }
+  const r2 = ui.prompt('Renombrar cuenta', 'Nuevo nombre para «' + viejo + '»:', ui.ButtonSet.OK_CANCEL);
+  if (r2.getSelectedButton() !== ui.Button.OK) return;
+  const nuevo = r2.getResponseText().trim();
+  if (!nuevo || nombres.indexOf(nuevo) >= 0) { ui.alert('Ese nombre está vacío o ya existe.'); return; }
+
+  const mov = ss.getSheetByName('Movimientos');
+  const n = mov.getLastRow() - 1;
+  let cambios = 0;
+  if (n > 0) {
+    const rg = mov.getRange(2, 6, n, 2);
+    // Se quita la validación un momento para poder escribir el nombre nuevo antes de que exista en Cuentas.
+    const reglas = rg.getDataValidations();
+    rg.clearDataValidations();
+    const vals = rg.getValues().map(r => r.map(x => (x === viejo ? (cambios++, nuevo) : x)));
+    rg.setValues(vals);
+    sh.getRange(CTA0 + i, 1).setValue(nuevo);
+    rg.setDataValidations(reglas);
+  } else sh.getRange(CTA0 + i, 1).setValue(nuevo);
+  ui.alert('Hecho: «' + viejo + '» ahora se llama «' + nuevo + '» (' + cambios + ' movimientos cambiados).');
 }
 
 // ---------- Categorías ----------
@@ -164,6 +262,10 @@ function disenoCategorias_(sh) {
   sh.setRowHeights(2, 23, 26);
   sh.getRange('A10').setBackground(C.bg).setFontColor(C.muted).setFontStyle('italic').setWrap(true);
   sh.getRange('A7:A24').setBackground(C.bg);
+  // La columna Cuenta se rellena sola desde la hoja Cuentas (las cuentas se añaden allí).
+  sh.getRange('I1').setValue('Cuenta');
+  sh.getRange('I2:I24').clearContent();
+  sh.getRange('I2').setFormula(F_('=IFERROR(FILTER(' + CU('A') + ',' + CU('A') + '<>""),"")'));
 }
 
 // ---------- Resumen ----------
@@ -188,13 +290,15 @@ function construirResumen_(ss, sh) {
 
   titulo_(sh, 'B', 'Finanzas personales');
   sh.getRange('B2:G2').merge().setFontColor(C.muted)
-    .setValue('Cada ciclo empieza el día que cobras la nómina en BBVA. Ahorro = traspasos a TR Ahorro. Del ciclo = ingresos − gastos − ahorro − inversión. Sobrante = lo acumulado que pasa al ciclo siguiente.');
+    .setValue('Cada ciclo empieza el día que cobras la nómina principal. Ahorro = traspasos a cuentas de ahorro. Del ciclo = ingresos − gastos − ahorro − inversión. Sobrante = lo acumulado que pasa al ciclo siguiente.');
 
-  // Ciclos: empiezan en cada Ingreso «Nómina» de BBVA y duran hasta la siguiente (la de Cobee no corta).
+  // Ciclos: empiezan en cada Ingreso «Nómina» en una cuenta con «Nómina abre ciclo» = Sí y duran hasta la siguiente.
   // Solo funciones clásicas (LET/MAP daban error de análisis en esta hoja).
   const M = c => 'Movimientos!$' + c + ':$' + c;
   const W = (d, h) => M('A') + ',">="&' + d + ',' + M('A') + ',"<"&' + h;
   const suma = (tipo, w, extra) => 'SUMIFS(' + M('C') + ',' + M('B') + ',"' + tipo + '",' + (extra ? extra + ',' : '') + w + ')';
+  // Suma de un tipo de movimiento cuya Cuenta (F) o Destino (G) es una cuenta con ese uso.
+  const enUso = (tipo, w, col, uso) => 'SUMPRODUCT(' + suma(tipo, w, M(col) + ',' + CU('A')) + '*(' + CU('B') + '="' + uso + '"))';
   const T0 = 12, T1 = 47; // filas de datos de la tabla de ciclos
   const rg = col => col + T0 + ':' + col + T1;
   const SIN_FIN = 'DATE(2100,1,1)';
@@ -206,13 +310,13 @@ function construirResumen_(ss, sh) {
     const d = '$B' + r, h = 'IF($B' + (r + 1) + '="",' + SIN_FIN + ',$B' + (r + 1) + ')', w = W(d, h);
     const si = x => '=IF($B' + r + '="","",' + x + ')';
     tabla.push([
-      si(suma('Ingreso', w, M('D') + ',"<>Saveback"')),
+      si(suma('Ingreso', w) + '-' + enUso('Ingreso', w, 'F', 'Inversión')),
       si(suma('Gasto', w) + '-' + suma('Reembolso', w)),
-      si(suma('Traspaso', w, M('G') + ',"TR Ahorro"') + '-' + suma('Traspaso', w, M('F') + ',"TR Ahorro"')),
+      si(enUso('Traspaso', w, 'G', 'Ahorro') + '-' + enUso('Traspaso', w, 'F', 'Ahorro')),
       si(suma('Inversión', w)),
       si('C' + r + '-D' + r + '-E' + r + '-F' + r),
-      // Sobrante acumulado: lo que tenías al empezar (BBVA + Trade Republic + Cobee) más el resultado de cada ciclo.
-      si((r === T0 ? 'Cuentas!$C$5+Cuentas!$C$6+Cuentas!$C$8' : 'H' + (r - 1)) + '+G' + r)
+      // Sobrante acumulado: lo que tenías al empezar en las cuentas del día a día más el resultado de cada ciclo.
+      si((r === T0 ? 'SUMIFS(' + CU('C') + ',' + CU('B') + ',"Día a día")' : 'H' + (r - 1)) + '+G' + r)
     ]);
   }
 
@@ -243,7 +347,7 @@ function construirResumen_(ss, sh) {
   sh.getRange('H11').setFormula(F_(ultimo('H')));
   sh.getRange('B11:H11').setFontWeight('bold').setBackground('#E9E6E0');
   sh.getRange('B' + T0).setFormula(F_('=IFERROR(SORT(UNIQUE(FILTER(Movimientos!$A$2:$A,Movimientos!$B$2:$B="Ingreso",' +
-    'Movimientos!$D$2:$D="Nómina",Movimientos!$F$2:$F="BBVA"))),"")'));
+    'Movimientos!$D$2:$D="Nómina",ISNUMBER(MATCH(Movimientos!$F$2:$F,FILTER(' + CU('A') + ',' + CU('E') + '="Sí"),0))))),"")'));
   sh.getRange('B' + T0 + ':B' + T1).setNumberFormat('mmmm" · desde el "d mmm').setHorizontalAlignment('left');
   sh.getRange('C' + T0 + ':H' + T1).setFormulas(tabla.map(f => f.map(F_)));
   sh.getRange('C11:H' + T1).setNumberFormat(EUR);
@@ -252,43 +356,51 @@ function construirResumen_(ss, sh) {
     .setBorder(null, null, null, null, null, true, C.line, SpreadsheetApp.BorderStyle.SOLID);
   sh.setRowHeights(11, T1 - 10, 28);
 
-  // Saldos y cartera (J:K)
-  const saldos = [['Saldos', 'Ahora'], ['BBVA', '=Cuentas!D5'], ['Trade Republic', '=Cuentas!D6'], ['TR Ahorro', '=Cuentas!D7'],
-    ['Cobee', '=Cuentas!D8'], ['Disponible para gastar', '=Cuentas!D11'], ['Total en cuentas', '=Cuentas!D12']];
-  sh.getRange('J4:K10').setValues(saldos.map(f => f.map(F_)));
+  // Saldos y cartera (J:K). Las cuentas salen de la hoja Cuentas (sin las de inversión ni las inactivas a cero).
+  const S0 = 7, S1 = 16; // huecos para cuentas
+  sh.getRange('J4:K6').setValues([['Saldos', 'Ahora'], ['Disponible para gastar', '=Cuentas!$H$5'], ['Total en cuentas', '=Cuentas!$H$6']]
+    .map(f => f.map(F_)));
+  sh.getRange('J' + S0).setFormula(F_('=IFERROR(FILTER({' + CU('A') + ',' + CU('D') + '},' + CU('A') + '<>"",' +
+    CU('B') + '<>"Inversión",(' + CU('F') + '<>"No")+(' + CU('D') + '<>0)),"")'));
   cabecera_(sh.getRange('J4:K4'));
-  sh.getRange('J5:K10').setBackground(C.card).setBorder(null, null, null, null, null, true, C.line, SpreadsheetApp.BorderStyle.SOLID);
-  sh.getRange('K5:K10').setNumberFormat(EUR);
-  sh.getRange('J9:K10').setFontWeight('bold');
-  sh.getRange('K10').setFontColor(C.navy);
+  sh.getRange('J5:K' + S1).setBackground(C.card).setBorder(null, null, null, null, null, true, C.line, SpreadsheetApp.BorderStyle.SOLID);
+  sh.getRange('K5:K' + S1).setNumberFormat(EUR);
+  sh.getRange('J5:K6').setFontWeight('bold').setBorder(null, null, true, null, null, null, C.navy, SpreadsheetApp.BorderStyle.SOLID);
+  sh.getRange('K5').setFontColor(C.navy);
 
-  const cartera = [['Cartera', ''], ['Total aportado', '=Cuentas!D9'], ['Valor de mercado (escríbelo tú)', valor],
-    ['Plusvalía', '=K14-K13'], ['Rentabilidad', '=IFERROR(K14/K13-1,0)']];
-  sh.getRange('J12:K16').setValues(cartera.map(f => f.map(F_)));
-  cabecera_(sh.getRange('J12:K12'));
-  sh.getRange('J12:K12').setBackground(C.tipos['Inversión'][0]);
-  sh.getRange('J13:K16').setBackground(C.card).setBorder(null, null, null, null, null, true, C.line, SpreadsheetApp.BorderStyle.SOLID);
-  sh.getRange('K13:K15').setNumberFormat(EUR);
-  sh.getRange('K16').setNumberFormat('0.0%');
-  const vc = sh.getRange('K14'); entrada_(vc); ss.setNamedRange('ValorCartera', vc);
+  const P0 = S1 + 2; // cartera
+  const cartera = [['Cartera', ''], ['Total aportado', '=SUMIFS(' + CU('D') + ',' + CU('B') + ',"Inversión")'],
+    ['Valor de mercado (escríbelo tú)', valor], ['Plusvalía', '=K' + (P0 + 2) + '-K' + (P0 + 1)],
+    ['Rentabilidad', '=IFERROR(K' + (P0 + 2) + '/K' + (P0 + 1) + '-1,0)']];
+  sh.getRange('J' + P0 + ':K' + (P0 + 4)).setValues(cartera.map(f => f.map(F_)));
+  cabecera_(sh.getRange('J' + P0 + ':K' + P0));
+  sh.getRange('J' + P0 + ':K' + P0).setBackground(C.tipos['Inversión'][0]);
+  sh.getRange('J' + (P0 + 1) + ':K' + (P0 + 4)).setBackground(C.card).setBorder(null, null, null, null, null, true, C.line, SpreadsheetApp.BorderStyle.SOLID);
+  sh.getRange('K' + (P0 + 1) + ':K' + (P0 + 3)).setNumberFormat(EUR);
+  sh.getRange('K' + (P0 + 4)).setNumberFormat('0.0%');
+  const vc = sh.getRange('K' + (P0 + 2)); entrada_(vc); ss.setNamedRange('ValorCartera', vc);
 
-  // Gasto por categoría (J:N)
-  const C0 = 19;
-  sh.getRange('J18:N18').setValues([['Gasto real por categoría', 'Este ciclo', 'Anterior', 'Media', '']]);
-  cabecera_(sh.getRange('J18:N18'));
-  sh.setRowHeight(18, 34);
+  // Gasto por categoría (J:N), con las categorías de gasto de la hoja Categorías
+  const hc = ss.getSheetByName('Categorías');
+  let gastos = hc ? hc.getRange('C2:C60').getValues().map(r => String(r[0]).trim()).filter(String) : [];
+  if (!gastos.length) gastos = GASTOS_POR_DEFECTO;
+  const H0 = P0 + 6, C0 = H0 + 1;
+  filas_(sh, C0 + gastos.length + 3);
+  sh.getRange('J' + H0 + ':N' + H0).setValues([['Gasto real por categoría', 'Este ciclo', 'Anterior', 'Media', '']]);
+  cabecera_(sh.getRange('J' + H0 + ':N' + H0));
+  sh.setRowHeight(H0, 34);
   const A = '$H$2', previo = 'LARGE(' + rg('B') + ',2)', primero = 'MIN(' + rg('B') + ')', cerrados = '(COUNT(' + rg('B') + ')-1)';
   const gastoCat = (r, d, h) => suma('Gasto', W(d, h), M('D') + ',$J' + r) + '-' + suma('Reembolso', W(d, h), M('D') + ',$J' + r);
-  const cats = GASTOS.map((cat, i) => {
+  const cats = gastos.map((cat, i) => {
     const r = C0 + i;
     return [cat,
       '=IFERROR(' + gastoCat(r, A, SIN_FIN) + ',0)',
       '=IFERROR(' + gastoCat(r, previo, A) + ',0)',
       '=IFERROR((' + gastoCat(r, primero, A) + ')/' + cerrados + ',0)',
-      '=SPARKLINE(MAX(K' + r + ',0),{"charttype","bar";"max",MAX($K$' + C0 + ':$M$' + (C0 + GASTOS.length - 1) + ');"color1","' + C.tipos['Gasto'][0] + '"})'];
+      '=SPARKLINE(MAX(K' + r + ',0),{"charttype","bar";"max",MAX($K$' + C0 + ':$M$' + (C0 + gastos.length - 1) + ');"color1","' + C.tipos['Gasto'][0] + '"})'];
   });
-  sh.getRange(C0, 10, GASTOS.length, 5).setValues(cats.map(f => f.map(F_)));
-  const CL = C0 + GASTOS.length;
+  sh.getRange(C0, 10, gastos.length, 5).setValues(cats.map(f => f.map(F_)));
+  const CL = C0 + gastos.length;
   sh.getRange('J' + CL).setValue('Total');
   ['K', 'L', 'M'].forEach(col => sh.getRange(col + CL).setFormula(F_('=SUM(' + col + C0 + ':' + col + (CL - 1) + ')')));
   sh.getRange('J' + C0 + ':N' + (CL - 1)).setBackground(C.card)

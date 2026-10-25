@@ -243,18 +243,45 @@ header{display:flex;align-items:center;justify-content:space-between;padding:14p
 
 <script>
 const TIPOS={
-  Gasto:{c:'gasto',cats:['Restaurantes','Supermercado','Ocio','Compras y hogar','Coche y moto','Deporte','Suscripciones','Viajes','Salud','Cuidado personal','Regalos','Vivienda','Formación','Impuestos','Otros'],acc:'BBVA'},
-  Ingreso:{c:'ingreso',cats:['Nómina','Ventas','Intereses','Saveback','Otros ingresos'],acc:'BBVA'},
-  Reembolso:{c:'reembolso',cats:null,acc:'BBVA'},
-  Traspaso:{c:'traspaso',cats:[],acc:'BBVA',dest:'Trade Republic'},
-  'Inversión':{c:'inversion',cats:['S&P 500','FTSE All-World','Otras inversiones'],acc:'Trade Republic',dest:'Cartera'}
+  Gasto:{c:'gasto',cats:['Restaurantes','Supermercado','Ocio','Compras y hogar','Coche y moto','Deporte','Suscripciones','Viajes','Salud','Cuidado personal','Regalos','Vivienda','Formación','Impuestos','Otros']},
+  Ingreso:{c:'ingreso',cats:['Nómina','Ventas','Intereses','Saveback','Otros ingresos']},
+  Reembolso:{c:'reembolso',cats:null},
+  Traspaso:{c:'traspaso',cats:[]},
+  'Inversión':{c:'inversion',cats:['S&P 500','FTSE All-World','Otras inversiones']}
 };
 TIPOS.Reembolso.cats=TIPOS.Gasto.cats;
-const CUENTAS=['BBVA','Trade Republic','TR Ahorro','Cobee'];
-const METODOS=['Tarjeta','Bizum','Transferencia','Domiciliado','Efectivo'];
+let METODOS=['Tarjeta','Bizum','Transferencia','Domiciliado','Efectivo'];
 const TOP=8;
 
-const S={tipo:'Gasto',amt:'',cat:null,acc:'BBVA',dest:null,met:'Tarjeta',showAll:false};
+// Cuentas: salen de la hoja (hoja Cuentas); estas son solo el respaldo si la hoja aún no las manda.
+// uso: «Día a día» cuenta para el sobrante, «Ahorro» recibe el ahorro, «Inversión» es la cartera.
+let CTAS=[{n:'BBVA',uso:'Día a día',ciclo:true,activa:true},{n:'Trade Republic',uso:'Día a día',ciclo:false,activa:true},
+  {n:'TR Ahorro',uso:'Ahorro',ciclo:false,activa:true},{n:'Cobee',uso:'Día a día',ciclo:false,activa:true},
+  {n:'Cartera',uso:'Inversión',ciclo:false,activa:true}];
+let CUENTAS=[],CARTERA='Cartera';
+const usoDe=n=>(CTAS.find(c=>c.n===n)||{}).uso;
+function aplicaConfig(conf){
+  if(conf&&conf.cuentas&&conf.cuentas.length)CTAS=conf.cuentas;
+  const l=conf&&conf.listas;
+  if(l){
+    if(l.Gasto&&l.Gasto.length)TIPOS.Gasto.cats=TIPOS.Reembolso.cats=l.Gasto;
+    if(l.Ingreso&&l.Ingreso.length)TIPOS.Ingreso.cats=l.Ingreso;
+    if(l['Inversión']&&l['Inversión'].length)TIPOS['Inversión'].cats=l['Inversión'];
+    if(l.metodos&&l.metodos.length)METODOS=l.metodos;
+  }
+  CUENTAS=CTAS.filter(c=>c.activa&&c.uso!=='Inversión').map(c=>c.n);
+  const cart=CTAS.find(c=>c.activa&&c.uso==='Inversión')||CTAS.find(c=>c.uso==='Inversión');
+  CARTERA=cart?cart.n:'Cartera';
+  // Cuenta por defecto: la de la nómina principal; para invertir y traspasar, la siguiente del día a día.
+  const diario=CTAS.filter(c=>c.activa&&c.uso==='Día a día').map(c=>c.n);
+  const principal=(CTAS.find(c=>c.activa&&c.ciclo)||{}).n||diario[0]||CUENTAS[0];
+  const otra=diario.find(n=>n!==principal)||CUENTAS.find(n=>n!==principal);
+  ['Gasto','Ingreso','Reembolso','Traspaso'].forEach(k=>TIPOS[k].acc=principal);
+  TIPOS.Traspaso.dest=otra;
+  TIPOS['Inversión'].acc=otra||principal;TIPOS['Inversión'].dest=CARTERA;
+}
+
+const S={tipo:'Gasto',amt:'',cat:null,acc:null,dest:null,met:'Tarjeta',showAll:false};
 const $=id=>document.getElementById(id);
 const fmt=n=>{const [e,d]=Math.abs(n).toFixed(2).split('.');return (n<0?'−':'')+e.replace(/\B(?=(\d{3})+(?!\d))/g,'.')+','+d};
 const today=()=>{const d=new Date();return new Date(d-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
@@ -305,8 +332,8 @@ function render(){
   if(S.tipo==='Traspaso')CUENTAS.filter(a=>a!==S.acc).forEach(a=>ds.appendChild(chip(a,a===S.dest,()=>{S.dest=a;render()})));
   // pista
   let h='';
-  if(S.tipo==='Inversión')h='Se mueve de tu cuenta a la Cartera.';
-  else if(S.tipo==='Ingreso'&&S.cat==='Saveback')h='El Saveback entra directamente en la Cartera.';
+  if(S.tipo==='Inversión')h=`Se mueve de tu cuenta a ${CARTERA}.`;
+  else if(S.tipo==='Ingreso'&&S.cat==='Saveback')h=`El Saveback entra directamente en ${CARTERA}.`;
   else if(S.tipo==='Reembolso')h='Resta de lo gastado en esa categoría, no cuenta como ingreso.';
   $('hint').textContent=h;
   // métodos
@@ -323,7 +350,7 @@ function render(){
 function selectTipo(k){
   S.tipo=k;S.cat=null;S.showAll=false;
   const T=TIPOS[k];
-  S.acc=(prefs[k]&&prefs[k].acc)||T.acc;
+  S.acc=(prefs[k]&&CUENTAS.includes(prefs[k].acc))?prefs[k].acc:T.acc;
   S.dest=T.dest||null;
   if(k==='Traspaso'&&S.dest===S.acc)S.dest=CUENTAS.find(x=>x!==S.acc);
   S.met=(prefs[k]&&prefs[k].met)||(k==='Gasto'?'Tarjeta':k==='Reembolso'?'Bizum':'Transferencia');
@@ -371,8 +398,8 @@ let lastSaved=null,timer=null;
 $('save').onclick=()=>{
   const val=parseFloat(S.amt.replace(',','.'));
   let acc=S.acc,dest=S.dest||'';
-  if(S.tipo==='Inversión')dest='Cartera';
-  if(S.tipo==='Ingreso'&&S.cat==='Saveback')acc='Cartera';
+  if(S.tipo==='Inversión')dest=CARTERA;
+  if(S.tipo==='Ingreso'&&S.cat==='Saveback')acc=CARTERA;
   const m={id:uid(),f:$('fecha').value||today(),t:S.tipo,i:val,cat:S.tipo==='Traspaso'?'':S.cat,acc,dest,d:$('nota').value.trim(),met:S.met};
   cola.push(m);guardaCola();lastSaved=m;
   prefs[S.tipo]={acc:S.acc,met:S.met};savePrefs();
@@ -417,7 +444,7 @@ async function cargar(){
     const r=await fetch(cfg.url+'?clave='+encodeURIComponent(cfg.clave)+'&t='+Date.now(),{cache:'no-store'});
     const j=await r.json();
     if(!j.ok)throw new Error(j.error);
-    j.hora=Date.now();datos=j;LS.set('rr-datos',j);renderList();estado();return true;
+    j.hora=Date.now();datos=j;LS.set('rr-datos',j);conConfig();renderList();estado();return true;
   }catch(e){estado(e.message==='Clave incorrecta'?'Clave incorrecta':'Sin conexión con la hoja');return false}
 }
 function estado(err){
@@ -443,12 +470,13 @@ function delta(m,s,saldos){
   const v=m.i*s;
   if(m.t==='Gasto')saldos[m.acc]=(saldos[m.acc]||0)-v;
   else if(m.t==='Ingreso'||m.t==='Reembolso')saldos[m.acc]=(saldos[m.acc]||0)+v;
-  else{saldos[m.acc]=(saldos[m.acc]||0)-v;saldos[m.dest||'Cartera']=(saldos[m.dest||'Cartera']||0)+v}
+  else{saldos[m.acc]=(saldos[m.acc]||0)-v;saldos[m.dest||CARTERA]=(saldos[m.dest||CARTERA]||0)+v}
 }
 function renderList(){
   let desde=datos&&datos.mes&&datos.mes.desde;
-  // Si la nómina de BBVA nueva aún está en cola, el ciclo nuevo empieza con ella.
-  const nueva=cola.filter(m=>m.t==='Ingreso'&&m.cat==='Nómina'&&m.acc==='BBVA').map(m=>m.f).sort().pop();
+  // Si la nómina nueva (de una cuenta que abre ciclo) aún está en cola, el ciclo nuevo empieza con ella.
+  const abre=CTAS.filter(c=>c.ciclo).map(c=>c.n);
+  const nueva=cola.filter(m=>m.t==='Ingreso'&&m.cat==='Nómina'&&abre.includes(m.acc)).map(m=>m.f).sort().pop();
   const reinicio=nueva&&(!desde||nueva>desde);
   if(reinicio)desde=nueva;
   $('mesTit').textContent=desde?'Ciclo desde el '+new Date(desde+'T12:00').toLocaleDateString('es-ES',{day:'numeric',month:'long'}):'Ciclo actual';
@@ -464,19 +492,25 @@ function renderList(){
   cola.forEach(m=>{
     delta(m,1,saldos);
     if(desde&&m.f<desde)return;
-    if(m.t==='Ingreso'&&m.cat!=='Saveback')ing+=m.i;
+    if(m.t==='Ingreso'&&usoDe(m.acc)!=='Inversión')ing+=m.i;
     if(m.t==='Gasto')gas+=m.i;
     if(m.t==='Reembolso')gas-=m.i;
-    if(m.t==='Traspaso'&&m.dest==='TR Ahorro')aho+=m.i;
-    if(m.t==='Traspaso'&&m.acc==='TR Ahorro')aho-=m.i;
+    if(m.t==='Traspaso'&&usoDe(m.dest)==='Ahorro')aho+=m.i;
+    if(m.t==='Traspaso'&&usoDe(m.acc)==='Ahorro')aho-=m.i;
     if(m.t==='Inversión')inv+=m.i;
   });
-  // Sobrante acumulado: lo que queda para gastar (BBVA + Trade Republic + Cobee), igual que en el Resumen.
-  const sob=['BBVA','Trade Republic','Cobee'].reduce((t,k)=>t+(saldos[k]||0),0);
+  // Sobrante acumulado: lo que queda en las cuentas del día a día, igual que en el Resumen.
+  const sob=Object.keys(saldos).filter(k=>usoDe(k)==='Día a día').reduce((t,k)=>t+saldos[k],0);
   $('kpis').innerHTML=`<div class="kpi"><span>Ingresos</span><b style="color:var(--ingreso)">${fmt(ing)}</b></div>
   <div class="kpi"><span>Gasto real</span><b style="color:var(--gasto)">${fmt(gas)}</b></div>
   <div class="kpi"><span>Sobrante</span><b style="color:var(${sob<0?'--gasto':'--ingreso'})">${fmt(sob)}</b></div>`;
-  $('saldos').innerHTML=Object.entries(saldos).map(([k,v])=>`<div class="acc${k==='Cartera'?' wide':''}"><span>${k}${k==='Cartera'?' (aportado)':''}</span><b>${fmt(v)} €</b></div>`).join('');
+  const esInv=k=>usoDe(k)==='Inversión';
+  $('saldos').innerHTML='';
+  Object.entries(saldos).forEach(([k,v])=>{
+    const d=document.createElement('div');d.className='acc'+(esInv(k)?' wide':'');
+    const a=document.createElement('span');a.textContent=k+(esInv(k)?' (aportado)':'');
+    const b=document.createElement('b');b.textContent=fmt(v)+' €';d.append(a,b);$('saldos').appendChild(d);
+  });
   const L=$('list');L.innerHTML='';let lastDay='';
   const todos=cola.map(m=>Object.assign({pend:true},m)).reverse().concat(datos?datos.ultimos:[]);
   todos.slice().sort((a,b)=>b.f.localeCompare(a.f)).slice(0,25).forEach(m=>{
@@ -556,7 +590,7 @@ $('cfgSave').onclick=async()=>{
   try{
     const j=await (await fetch(url+'?clave='+encodeURIComponent(clave))).json();
     if(!j.ok){msg.textContent=j.error==='Clave incorrecta'?'La clave no coincide con la de Apps Script.':'Error: '+j.error;return}
-    cfg={url,clave};LS.set('rr-cfg',cfg);j.hora=Date.now();datos=j;LS.set('rr-datos',j);
+    cfg={url,clave};LS.set('rr-cfg',cfg);j.hora=Date.now();datos=j;LS.set('rr-datos',j);conConfig();
     msg.textContent='Conectado ✓';estado();enviar();setTimeout(()=>tab('nuevo'),700);
   }catch(e){msg.textContent='No se pudo conectar. Revisa la URL y tu conexión.'}
 };
@@ -572,7 +606,16 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden){cola.leng
 $('sync').onclick=()=>{cola.length?enviar():cargar();toast('Actualizando…')};
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 
-render();renderList();estado();
+// Aplica las cuentas y listas de la hoja; si cambian, se rehace la pantalla de registro.
+let cfgVista='';
+function conConfig(){
+  const c=datos&&datos.config,k=JSON.stringify(c||null);
+  if(k===cfgVista)return;
+  cfgVista=k;aplicaConfig(c);
+  if(!CUENTAS.includes(S.acc)||(S.dest&&S.dest!==CARTERA&&!CUENTAS.includes(S.dest)))selectTipo(S.tipo);else render();
+}
+aplicaConfig(datos&&datos.config);cfgVista=JSON.stringify((datos&&datos.config)||null);
+selectTipo('Gasto');renderList();estado();
 if(!cfg.url)$('cfgBtn').click();else{enviar();cargar()}
 </script>
 </body>
