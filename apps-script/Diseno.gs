@@ -158,7 +158,7 @@ function construirResumen_(ss, sh) {
   sh.setTabColor(C.navy);
   sh.setFrozenRows(0);
 
-  [24, 200, 125, 125, 125, 125, 125, 120, 30, 190, 120, 120, 120, 170].forEach((w, i) => sh.setColumnWidth(i + 1, w));
+  [24, 230, 125, 125, 125, 125, 125, 120, 30, 190, 120, 120, 120, 170].forEach((w, i) => sh.setColumnWidth(i + 1, w));
 
   titulo_(sh, 'B', 'Finanzas personales');
   sh.getRange('B2').setValue('El mes empieza el día').setFontColor(C.muted);
@@ -177,7 +177,8 @@ function construirResumen_(ss, sh) {
   const GAS = 'SUMIFS(' + M('C') + ',' + M('B') + ',"Gasto",' + W + ')-SUMIFS(' + M('C') + ',' + M('B') + ',"Reembolso",' + W + ')';
   const AHO = 'SUMIFS(' + M('C') + ',' + M('B') + ',"Traspaso",' + M('G') + ',"TR Ahorro",' + W + ')-SUMIFS(' + M('C') + ',' + M('B') + ',"Traspaso",' + M('F') + ',"TR Ahorro",' + W + ')';
   const INV = 'SUMIFS(' + M('C') + ',' + M('B') + ',"Inversión",' + W + ')';
-  const LAB = 'IF(Corte=1,TEXT(desde,"mmmm yyyy"),TEXT(desde,"d mmm")&" – "&TEXT(hasta-1,"d mmm yy"))';
+  // Con corte, cada fila se nombra por la nómina que la abre: "septiembre · 25 sep – 24 oct".
+  const LAB = 'IF(Corte=1,TEXT(desde,"mmmm yyyy"),TEXT(desde,"mmmm")&" · "&TEXT(desde,"d mmm")&" – "&TEXT(hasta-1,"d mmm"))';
 
   const T0 = 12, T1 = 47; // filas de datos de la tabla mes a mes
   const rg = col => col + T0 + ':' + col + T1;
