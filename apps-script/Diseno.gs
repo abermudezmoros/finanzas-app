@@ -298,7 +298,10 @@ function construirResumen_(ss, sh) {
   const W = (d, h) => M('A') + ',">="&' + d + ',' + M('A') + ',"<"&' + h;
   const suma = (tipo, w, extra) => 'SUMIFS(' + M('C') + ',' + M('B') + ',"' + tipo + '",' + (extra ? extra + ',' : '') + w + ')';
   // Suma de un tipo de movimiento cuya Cuenta (F) o Destino (G) es una cuenta con ese uso.
-  const enUso = (tipo, w, col, uso) => 'SUMPRODUCT(' + suma(tipo, w, M(col) + ',' + CU('A')) + '*(' + CU('B') + '="' + uso + '"))';
+  // (SUMIFS no acepta una lista de cuentas como criterio en Sheets, por eso va fila a fila.)
+  const R2 = c => 'Movimientos!$' + c + '$2:$' + c;
+  const enUso = (tipo, d, h, col, uso) => 'SUMPRODUCT(ARRAYFORMULA((' + R2('B') + '="' + tipo + '")*(' + R2('A') + '>=' + d +
+    ')*(' + R2('A') + '<' + h + ')*ISNUMBER(MATCH(' + R2(col) + ',IF(' + CU('B') + '="' + uso + '",' + CU('A') + '),0))*' + R2('C') + '))';
   const T0 = 12, T1 = 47; // filas de datos de la tabla de ciclos
   const rg = col => col + T0 + ':' + col + T1;
   const SIN_FIN = 'DATE(2100,1,1)';
@@ -310,9 +313,9 @@ function construirResumen_(ss, sh) {
     const d = '$B' + r, h = 'IF($B' + (r + 1) + '="",' + SIN_FIN + ',$B' + (r + 1) + ')', w = W(d, h);
     const si = x => '=IF($B' + r + '="","",' + x + ')';
     tabla.push([
-      si(suma('Ingreso', w) + '-' + enUso('Ingreso', w, 'F', 'Inversión')),
+      si(suma('Ingreso', w) + '-' + enUso('Ingreso', d, h, 'F', 'Inversión')),
       si(suma('Gasto', w) + '-' + suma('Reembolso', w)),
-      si(enUso('Traspaso', w, 'G', 'Ahorro') + '-' + enUso('Traspaso', w, 'F', 'Ahorro')),
+      si(enUso('Traspaso', d, h, 'G', 'Ahorro') + '-' + enUso('Traspaso', d, h, 'F', 'Ahorro')),
       si(suma('Inversión', w)),
       si('C' + r + '-D' + r + '-E' + r + '-F' + r),
       // Sobrante acumulado: lo que tenías al empezar en las cuentas del día a día más el resultado de cada ciclo.
