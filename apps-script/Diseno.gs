@@ -168,23 +168,34 @@ function construirResumen_(ss, sh) {
   sh.getRange('D2:G2').merge().setFontColor(C.muted)
     .setValue('Ahorro = traspasos a TR Ahorro. Sobrante = lo que pasa al mes siguiente.');
 
-  // Fórmulas por periodo (una fila por mes, crecen solas).
+  // Fórmulas por periodo: solo funciones clásicas (LET/MAP daban error de análisis).
+  // Cada fila j de la tabla es el periodo que empieza en EDATE(origen, j); las futuras quedan vacías.
   const M = c => 'Movimientos!$' + c + ':$' + c;
-  const W = M('A') + ',">="&desde,' + M('A') + ',"<"&hasta';
-  const per = expr => '=LET(origen,DATE(2026,8,Corte),nmes,MAX(1,DATEDIF(origen,TODAY(),"M")+1),' +
-    'MAP(SEQUENCE(nmes),LAMBDA(k,LET(desde,EDATE(origen,k-1),hasta,EDATE(origen,k),' + expr + '))))';
-  const ING = 'SUMIFS(' + M('C') + ',' + M('B') + ',"Ingreso",' + M('D') + ',"<>Saveback",' + W + ')';
-  const GAS = 'SUMIFS(' + M('C') + ',' + M('B') + ',"Gasto",' + W + ')-SUMIFS(' + M('C') + ',' + M('B') + ',"Reembolso",' + W + ')';
-  const AHO = 'SUMIFS(' + M('C') + ',' + M('B') + ',"Traspaso",' + M('G') + ',"TR Ahorro",' + W + ')-SUMIFS(' + M('C') + ',' + M('B') + ',"Traspaso",' + M('F') + ',"TR Ahorro",' + W + ')';
-  const INV = 'SUMIFS(' + M('C') + ',' + M('B') + ',"Inversión",' + W + ')';
-  // Con corte, cada fila se nombra por la nómina que la abre: "septiembre · 25 sep – 24 oct".
-  const LAB = 'IF(Corte=1,TEXT(desde,"mmmm yyyy"),TEXT(desde,"mmmm")&" · "&TEXT(desde,"d mmm")&" – "&TEXT(hasta-1,"d mmm"))';
+  const O = 'DATE(2026,8,$C$2)';
+  const W = (d, h) => M('A') + ',">="&' + d + ',' + M('A') + ',"<"&' + h;
+  const suma = (tipo, w, extra) => 'SUMIFS(' + M('C') + ',' + M('B') + ',"' + tipo + '",' + (extra ? extra + ',' : '') + w + ')';
+  sh.getRange('H2').setFormula('=EDATE(' + O + ',MAX(0,DATEDIF(' + O + ',TODAY(),"M")))')
+    .setNumberFormat('"Mes actual desde el "d mmm').setFontColor(C.muted);
 
   const T0 = 12, T1 = 47; // filas de datos de la tabla mes a mes
   const rg = col => col + T0 + ':' + col + T1;
+  const tabla = [];
+  for (let r = T0; r <= T1; r++) {
+    const j = r - T0, d = 'EDATE(' + O + ',' + j + ')', h = 'EDATE(' + O + ',' + (j + 1) + ')', w = W(d, h);
+    const si = x => '=IF($B' + r + '="","",' + x + ')';
+    tabla.push([
+      '=IF(' + d + '>TODAY(),"",IF($C$2=1,TEXT(' + d + ',"mmmm yyyy"),TEXT(' + d + ',"mmmm")&" · "&TEXT(' + d + ',"d mmm")&" – "&TEXT(' + h + '-1,"d mmm")))',
+      si(suma('Ingreso', w, M('D') + ',"<>Saveback"')),
+      si(suma('Gasto', w) + '-' + suma('Reembolso', w)),
+      si(suma('Traspaso', w, M('G') + ',"TR Ahorro"') + '-' + suma('Traspaso', w, M('F') + ',"TR Ahorro"')),
+      si(suma('Inversión', w)),
+      si('C' + r + '-D' + r + '-E' + r + '-F' + r),
+      '=IF(OR($B' + r + '="",C' + r + '=0),"",(E' + r + '+F' + r + ')/C' + r + ')'
+    ]);
+  }
 
   // Tarjetas del mes actual (fila 4 etiqueta, 5 valor, 6 tendencia)
-  const ultimo = col => '=IFERROR(INDEX(' + rg(col) + ',COUNTA(' + rg('B') + ')),0)';
+  const ultimo = col => '=IFERROR(INDEX(' + rg(col) + ',COUNTIF(' + rg('B') + ',"?*")),0)';
   sh.getRange('B4').setValue('ESTE MES').setFontColor(C.muted).setFontSize(9).setFontWeight('bold');
   sh.getRange('B5').setFormula(ultimo('B').replace(',0)', ',"")')).setFontSize(13).setFontWeight('bold');
   sh.getRange('B6').setValue('Tendencia de los últimos meses').setFontColor(C.muted).setFontSize(9);
@@ -208,13 +219,7 @@ function construirResumen_(ss, sh) {
   ['C', 'D', 'E', 'F', 'G'].forEach(col => sh.getRange(col + '11').setFormula('=SUM(' + rg(col) + ')'));
   sh.getRange('H11').setFormula('=IF(C11=0,"",(E11+F11)/C11)');
   sh.getRange('B11:H11').setFontWeight('bold').setBackground('#E9E6E0');
-  sh.getRange('B' + T0).setFormula(per(LAB));
-  sh.getRange('C' + T0).setFormula(per(ING));
-  sh.getRange('D' + T0).setFormula(per(GAS));
-  sh.getRange('E' + T0).setFormula(per(AHO));
-  sh.getRange('F' + T0).setFormula(per(INV));
-  sh.getRange('G' + T0).setFormula('=ARRAYFORMULA(IF(' + rg('B') + '="","",' + rg('C') + '-' + rg('D') + '-' + rg('E') + '-' + rg('F') + '))');
-  sh.getRange('H' + T0).setFormula('=ARRAYFORMULA(IF((' + rg('B') + '="")+(' + rg('C') + '=0),"",(' + rg('E') + '+' + rg('F') + ')/' + rg('C') + '))');
+  sh.getRange('B' + T0 + ':H' + T1).setFormulas(tabla);
   sh.getRange('C11:G' + T1).setNumberFormat(EUR);
   sh.getRange('H11:H' + T1).setNumberFormat('0%');
   sh.getRange('B' + T0 + ':H' + T1).setBackground(C.card)
@@ -246,17 +251,17 @@ function construirResumen_(ss, sh) {
   sh.getRange('J18:N18').setValues([['Gasto real por categoría', 'Este mes', 'Mes anterior', 'Media', '']]);
   cabecera_(sh.getRange('J18:N18'));
   sh.setRowHeight(18, 34);
-  const pre = '=LET(origen,DATE(2026,8,Corte),nmes,MAX(1,DATEDIF(origen,TODAY(),"M")+1),';
-  GASTOS.forEach((cat, i) => {
+  const A = '$H$2', mesesPrevios = 'DATEDIF(' + O + ',' + A + ',"M")';
+  const gastoCat = (r, d, h) => suma('Gasto', W(d, h), M('D') + ',$J' + r) + '-' + suma('Reembolso', W(d, h), M('D') + ',$J' + r);
+  const cats = GASTOS.map((cat, i) => {
     const r = C0 + i;
-    const g = (ini, fin) => 'LET(desde,' + ini + ',hasta,' + fin + ',SUMIFS(' + M('C') + ',' + M('B') + ',"Gasto",' + M('D') + ',$J' + r + ',' + W +
-      ')-SUMIFS(' + M('C') + ',' + M('B') + ',"Reembolso",' + M('D') + ',$J' + r + ',' + W + '))';
-    sh.getRange('J' + r).setValue(cat);
-    sh.getRange('K' + r).setFormula(pre + g('EDATE(origen,nmes-1)', 'EDATE(origen,nmes)') + ')');
-    sh.getRange('L' + r).setFormula(pre + g('EDATE(origen,nmes-2)', 'EDATE(origen,nmes-1)') + ')');
-    sh.getRange('M' + r).setFormula(pre + 'IF(nmes<2,0,' + g('origen', 'EDATE(origen,nmes-1)') + '/(nmes-1)))');
-    sh.getRange('N' + r).setFormula('=SPARKLINE(MAX(K' + r + ',0),{"charttype","bar";"max",MAX($K$' + C0 + ':$M$' + (C0 + GASTOS.length - 1) + ');"color1","' + C.tipos['Gasto'][0] + '"})');
+    return [cat,
+      '=' + gastoCat(r, A, 'EDATE(' + A + ',1)'),
+      '=' + gastoCat(r, 'EDATE(' + A + ',-1)', A),
+      '=IF(' + mesesPrevios + '=0,0,(' + gastoCat(r, O, A) + ')/' + mesesPrevios + ')',
+      '=SPARKLINE(MAX(K' + r + ',0),{"charttype","bar";"max",MAX($K$' + C0 + ':$M$' + (C0 + GASTOS.length - 1) + ');"color1","' + C.tipos['Gasto'][0] + '"})'];
   });
+  sh.getRange(C0, 10, GASTOS.length, 5).setValues(cats);
   const CL = C0 + GASTOS.length;
   sh.getRange('J' + CL).setValue('Total');
   ['K', 'L', 'M'].forEach(col => sh.getRange(col + CL).setFormula('=SUM(' + col + C0 + ':' + col + (CL - 1) + ')'));
