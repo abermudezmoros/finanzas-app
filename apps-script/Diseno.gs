@@ -25,8 +25,34 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('Finanzas').addItem('Aplicar diseño', 'aplicarDiseno').addToUi();
 }
 
+// Las hojas en español separan los argumentos con «;» (y las columnas de {…} con «\»).
+// Las fórmulas de este archivo están escritas con comas; F_ las adapta si hace falta.
+let SEP = ',';
+function detectaSeparador_(ss) {
+  const sh = ss.insertSheet('_prueba_');
+  sh.getRange('A1').setFormula('=SUM(1,2)');
+  SpreadsheetApp.flush();
+  SEP = sh.getRange('A1').getValue() === 3 ? ',' : ';';
+  ss.deleteSheet(sh);
+}
+function F_(f) {
+  if (SEP === ',' || typeof f !== 'string' || f.charAt(0) !== '=') return f;
+  let r = '', enTexto = false, llaves = 0;
+  for (const c of f) {
+    if (c === '"') enTexto = !enTexto;
+    if (!enTexto) {
+      if (c === '{') llaves++;
+      if (c === '}') llaves--;
+      if (c === ',') { r += llaves > 0 ? '\\' : ';'; continue; }
+    }
+    r += c;
+  }
+  return r;
+}
+
 function aplicarDiseno() {
   const ss = SpreadsheetApp.getActive();
+  detectaSeparador_(ss);
   disenoMovimientos_(ss.getSheetByName('Movimientos'));
   disenoCuentas_(ss.getSheetByName('Cuentas'));
   disenoCategorias_(ss.getSheetByName('Categorías'));
@@ -172,7 +198,7 @@ function construirResumen_(ss, sh) {
   const T0 = 12, T1 = 47; // filas de datos de la tabla de ciclos
   const rg = col => col + T0 + ':' + col + T1;
   const SIN_FIN = 'DATE(2100,1,1)';
-  sh.getRange('H2').setFormula('=IFERROR(MAX(' + rg('B') + '),"")')
+  sh.getRange('H2').setFormula(F_('=IFERROR(MAX(' + rg('B') + '),"")'))
     .setNumberFormat('"Ciclo actual desde el "d mmm').setFontColor(C.muted);
 
   const tabla = [];
@@ -192,14 +218,14 @@ function construirResumen_(ss, sh) {
   // Tarjetas del mes actual (fila 4 etiqueta, 5 valor, 6 tendencia)
   const ultimo = col => '=IFERROR(INDEX(' + rg(col) + ',COUNT(' + rg('B') + ')),0)';
   sh.getRange('B4').setValue('ESTE CICLO').setFontColor(C.muted).setFontSize(9).setFontWeight('bold');
-  sh.getRange('B5').setFormula(ultimo('B').replace(',0)', ',"")')).setNumberFormat('mmmm" · desde el "d mmm').setHorizontalAlignment('left').setFontSize(13).setFontWeight('bold');
+  sh.getRange('B5').setFormula(F_(ultimo('B').replace(',0)', ',"")'))).setNumberFormat('mmmm" · desde el "d mmm').setHorizontalAlignment('left').setFontSize(13).setFontWeight('bold');
   sh.getRange('B6').setValue('Tendencia de los últimos ciclos').setFontColor(C.muted).setFontSize(9);
   const tarjetas = [['C', 'INGRESOS', C.tipos['Ingreso'][0]], ['D', 'GASTO REAL', C.tipos['Gasto'][0]],
     ['E', 'AHORRO', C.tipos['Reembolso'][0]], ['F', 'INVERSIÓN', C.tipos['Inversión'][0]], ['G', 'SOBRANTE', C.navy]];
   tarjetas.forEach(([col, et, color]) => {
     sh.getRange(col + '4').setValue(et).setFontColor(C.muted).setFontSize(9).setFontWeight('bold');
-    sh.getRange(col + '5').setFormula(ultimo(col)).setNumberFormat(EUR0).setFontSize(18).setFontWeight('bold').setFontColor(color);
-    sh.getRange(col + '6').setFormula('=IFERROR(SPARKLINE(FILTER(' + rg(col) + ',' + rg('B') + '<>""),{"charttype","column";"color","' + color + '"}),"")');
+    sh.getRange(col + '5').setFormula(F_(ultimo(col))).setNumberFormat(EUR0).setFontSize(18).setFontWeight('bold').setFontColor(color);
+    sh.getRange(col + '6').setFormula(F_('=IFERROR(SPARKLINE(FILTER(' + rg(col) + ',' + rg('B') + '<>""),{"charttype","column";"color","' + color + '"}),"")'));
   });
   sh.getRange('B4:G6').setBackground(C.card).setHorizontalAlignment('left');
   sh.getRange('B4:G4').setBorder(true, null, null, null, null, null, C.line, SpreadsheetApp.BorderStyle.SOLID);
@@ -211,13 +237,13 @@ function construirResumen_(ss, sh) {
   cabecera_(sh.getRange('B10:H10'));
   sh.setRowHeight(10, 34);
   sh.getRange('B11').setValue('Total');
-  ['C', 'D', 'E', 'F', 'G'].forEach(col => sh.getRange(col + '11').setFormula('=SUM(' + rg(col) + ')'));
-  sh.getRange('H11').setFormula('=IF(C11=0,"",(E11+F11)/C11)');
+  ['C', 'D', 'E', 'F', 'G'].forEach(col => sh.getRange(col + '11').setFormula(F_('=SUM(' + rg(col) + ')')));
+  sh.getRange('H11').setFormula(F_('=IF(C11=0,"",(E11+F11)/C11)'));
   sh.getRange('B11:H11').setFontWeight('bold').setBackground('#E9E6E0');
-  sh.getRange('B' + T0).setFormula('=IFERROR(SORT(UNIQUE(FILTER(Movimientos!$A$2:$A,Movimientos!$B$2:$B="Ingreso",' +
-    'Movimientos!$D$2:$D="Nómina",Movimientos!$F$2:$F="BBVA"))),"")');
+  sh.getRange('B' + T0).setFormula(F_('=IFERROR(SORT(UNIQUE(FILTER(Movimientos!$A$2:$A,Movimientos!$B$2:$B="Ingreso",' +
+    'Movimientos!$D$2:$D="Nómina",Movimientos!$F$2:$F="BBVA"))),"")'));
   sh.getRange('B' + T0 + ':B' + T1).setNumberFormat('mmmm" · desde el "d mmm').setHorizontalAlignment('left');
-  sh.getRange('C' + T0 + ':H' + T1).setFormulas(tabla);
+  sh.getRange('C' + T0 + ':H' + T1).setFormulas(tabla.map(f => f.map(F_)));
   sh.getRange('C11:G' + T1).setNumberFormat(EUR);
   sh.getRange('H11:H' + T1).setNumberFormat('0%');
   sh.getRange('B' + T0 + ':H' + T1).setBackground(C.card)
@@ -227,7 +253,7 @@ function construirResumen_(ss, sh) {
   // Saldos y cartera (J:K)
   const saldos = [['Saldos', 'Ahora'], ['BBVA', '=Cuentas!D5'], ['Trade Republic', '=Cuentas!D6'], ['TR Ahorro', '=Cuentas!D7'],
     ['Cobee', '=Cuentas!D8'], ['Disponible para gastar', '=Cuentas!D11'], ['Total en cuentas', '=Cuentas!D12']];
-  sh.getRange('J4:K10').setValues(saldos);
+  sh.getRange('J4:K10').setValues(saldos.map(f => f.map(F_)));
   cabecera_(sh.getRange('J4:K4'));
   sh.getRange('J5:K10').setBackground(C.card).setBorder(null, null, null, null, null, true, C.line, SpreadsheetApp.BorderStyle.SOLID);
   sh.getRange('K5:K10').setNumberFormat(EUR);
@@ -236,7 +262,7 @@ function construirResumen_(ss, sh) {
 
   const cartera = [['Cartera', ''], ['Total aportado', '=Cuentas!D9'], ['Valor de mercado (escríbelo tú)', valor],
     ['Plusvalía', '=K14-K13'], ['Rentabilidad', '=IFERROR(K14/K13-1,0)']];
-  sh.getRange('J12:K16').setValues(cartera);
+  sh.getRange('J12:K16').setValues(cartera.map(f => f.map(F_)));
   cabecera_(sh.getRange('J12:K12'));
   sh.getRange('J12:K12').setBackground(C.tipos['Inversión'][0]);
   sh.getRange('J13:K16').setBackground(C.card).setBorder(null, null, null, null, null, true, C.line, SpreadsheetApp.BorderStyle.SOLID);
@@ -259,10 +285,10 @@ function construirResumen_(ss, sh) {
       '=IFERROR((' + gastoCat(r, primero, A) + ')/' + cerrados + ',0)',
       '=SPARKLINE(MAX(K' + r + ',0),{"charttype","bar";"max",MAX($K$' + C0 + ':$M$' + (C0 + GASTOS.length - 1) + ');"color1","' + C.tipos['Gasto'][0] + '"})'];
   });
-  sh.getRange(C0, 10, GASTOS.length, 5).setValues(cats);
+  sh.getRange(C0, 10, GASTOS.length, 5).setValues(cats.map(f => f.map(F_)));
   const CL = C0 + GASTOS.length;
   sh.getRange('J' + CL).setValue('Total');
-  ['K', 'L', 'M'].forEach(col => sh.getRange(col + CL).setFormula('=SUM(' + col + C0 + ':' + col + (CL - 1) + ')'));
+  ['K', 'L', 'M'].forEach(col => sh.getRange(col + CL).setFormula(F_('=SUM(' + col + C0 + ':' + col + (CL - 1) + ')')));
   sh.getRange('J' + C0 + ':N' + (CL - 1)).setBackground(C.card)
     .setBorder(null, null, null, null, null, true, C.line, SpreadsheetApp.BorderStyle.SOLID);
   sh.getRange('J' + CL + ':N' + CL).setFontWeight('bold').setBackground('#E9E6E0');
