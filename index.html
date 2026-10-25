@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Finanzas</title>
 <meta name="theme-color" content="#F4F2EE" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#111317" media="(prefers-color-scheme: dark)">
@@ -50,6 +50,9 @@
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;background:var(--bg);color:var(--text);font-family:Manrope,system-ui,sans-serif}
+/* Sin zoom: ni con doble toque ni con dos dedos; la app ocupa siempre el ancho de la pantalla. */
+html{touch-action:manipulation;-webkit-text-size-adjust:100%;text-size-adjust:100%}
+body{overflow-x:hidden}
 body{min-height:100dvh}
 button{font:inherit;color:inherit;border:0;background:none;cursor:pointer}
 .app{max-width:480px;margin:0 auto;min-height:100dvh;display:flex;flex-direction:column;
@@ -67,7 +70,8 @@ header{display:flex;align-items:center;justify-content:space-between;padding:14p
 .tipos::-webkit-scrollbar{display:none}
 .tipo{flex:0 0 auto;padding:8px 14px;border-radius:999px;font-weight:700;font-size:14px;background:var(--surface);border:1.5px solid var(--line);color:var(--muted)}
 .tipo.on{color:var(--c);background:var(--cs);border-color:var(--c)}
-.amount{text-align:center;padding:22px 0 14px}
+.amount{text-align:center;padding:22px 0 14px;cursor:pointer;user-select:none;-webkit-user-select:none}
+.amount .tap{display:block;font-size:12px;font-weight:600;color:var(--muted);margin-top:8px;min-height:15px}
 .amount .num{font-size:56px;font-weight:800;letter-spacing:-1.5px;line-height:1;color:var(--c);font-variant-numeric:tabular-nums;transition:color .15s}
 .amount .num.empty{color:var(--line)}
 .amount .cur{font-size:30px;font-weight:700;margin-left:4px;opacity:.7}
@@ -91,15 +95,17 @@ header{display:flex;align-items:center;justify-content:space-between;padding:14p
 .field input[type=date]{min-height:48px;-webkit-appearance:none;appearance:none}
 .sync{cursor:pointer}
 .field{display:flex;flex-direction:column;gap:6px;margin-top:12px}
-.field input{font:inherit;font-size:15px;padding:12px 14px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);color:var(--text);width:100%}
+.field input{font:inherit;font-size:16px;padding:12px 14px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);color:var(--text);width:100%}
 .field input:focus{outline:none;border-color:var(--accent)}
 .hint{font-size:13px;color:var(--muted);margin:10px 2px 0}
 
 .pad{position:sticky;bottom:0;background:var(--bg);padding:8px 0 max(12px,env(safe-area-inset-bottom));border-top:1px solid var(--line)}
-.keys{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.keys{display:none;grid-template-columns:repeat(3,1fr);gap:7px;margin-bottom:8px}
+.pad.open .keys{display:grid}
+.key{user-select:none;-webkit-user-select:none}
 .key{height:50px;border-radius:12px;background:var(--key);font-size:22px;font-weight:700;box-shadow:0 1px 0 var(--line)}
 .key:active{background:var(--key-press)}
-.save{margin-top:8px;width:100%;height:54px;border-radius:14px;background:var(--c);color:#fff;font-weight:800;font-size:17px;}
+.save{width:100%;height:54px;border-radius:14px;background:var(--c);color:#fff;font-weight:800;font-size:17px;}
 :root[data-theme="dark"] .save{color:#111}
 @media (prefers-color-scheme: dark){:root:not([data-theme="light"]) .save{color:#111}}
 .save:disabled{opacity:.35}
@@ -174,7 +180,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:14p
   <section id="nuevo">
     <div class="scroll">
       <div class="tipos" id="tipos"></div>
-      <div class="amount"><span class="num empty" id="num">0</span><span class="cur">€</span></div>
+      <div class="amount" id="amount"><span class="num empty" id="num">0</span><span class="cur">€</span><span class="tap" id="tap"></span></div>
 
       <div id="catBlock">
         <div class="label" id="catLabel">Categoría</div>
@@ -203,7 +209,7 @@ header{display:flex;align-items:center;justify-content:space-between;padding:14p
       </div>
     </div>
 
-    <div class="pad">
+    <div class="pad" id="pad">
       <div class="keys" id="keys"></div>
       <button class="save" id="save" disabled>Guardar</button>
     </div>
@@ -314,6 +320,7 @@ function render(){
   const n=$('num');
   n.textContent=S.amt===''?'0':S.amt.replace(/^(\d+)/,d=>d.replace(/\B(?=(\d{3})+(?!\d))/g,'.'));
   n.classList.toggle('empty',S.amt==='');
+  $('tap').textContent=$('pad').classList.contains('open')?'':(S.amt===''?'Toca para escribir el importe':'Toca para cambiarlo');
   // categorías
   $('catBlock').style.display=T.cats.length?'block':'none';
   $('catLabel').textContent=S.tipo==='Reembolso'?'¿De qué gasto te devuelven?':S.tipo==='Inversión'?'Producto':'Categoría';
@@ -362,6 +369,14 @@ K.forEach(k=>{
   const b=document.createElement('button');b.className='key';b.textContent=k;
   b.onclick=()=>press(k);$('keys').appendChild(b);
 });
+// El teclado solo aparece al tocar el importe; se esconde al tocar fuera o al guardar.
+function teclado(abrir){$('pad').classList.toggle('open',abrir);render()}
+$('amount').onclick=()=>teclado(!$('pad').classList.contains('open'));
+document.addEventListener('click',e=>{
+  if($('pad').classList.contains('open')&&!e.target.closest('#pad')&&!e.target.closest('#amount'))teclado(false);
+});
+// iOS ignora user-scalable=no: se bloquea el gesto de pellizcar.
+document.addEventListener('gesturestart',e=>e.preventDefault());
 function press(k){
   let a=S.amt;
   if(k==='⌫')a=a.slice(0,-1);
@@ -403,7 +418,7 @@ $('save').onclick=()=>{
   const m={id:uid(),f:$('fecha').value||today(),t:S.tipo,i:val,cat:S.tipo==='Traspaso'?'':S.cat,acc,dest,d:$('nota').value.trim(),met:S.met};
   cola.push(m);guardaCola();lastSaved=m;
   prefs[S.tipo]={acc:S.acc,met:S.met};savePrefs();
-  S.amt='';S.cat=null;S.showAll=false;$('nota').value='';$('fecha').value=today();detalles(false);
+  S.amt='';S.cat=null;S.showAll=false;$('nota').value='';$('fecha').value=today();detalles(false);$('pad').classList.remove('open');
   render();renderList();
   toast(`${m.t} de ${fmt(val)} € guardado`,true);
   clearTimeout(timer);timer=setTimeout(enviar,4000);   // margen para deshacer antes de enviar
