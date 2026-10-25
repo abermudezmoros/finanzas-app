@@ -471,9 +471,11 @@ function renderList(){
     if(m.t==='Traspaso'&&m.acc==='TR Ahorro')aho-=m.i;
     if(m.t==='Inversión')inv+=m.i;
   });
+  // Sobrante acumulado: lo que queda para gastar (BBVA + Trade Republic + Cobee), igual que en el Resumen.
+  const sob=['BBVA','Trade Republic','Cobee'].reduce((t,k)=>t+(saldos[k]||0),0);
   $('kpis').innerHTML=`<div class="kpi"><span>Ingresos</span><b style="color:var(--ingreso)">${fmt(ing)}</b></div>
   <div class="kpi"><span>Gasto real</span><b style="color:var(--gasto)">${fmt(gas)}</b></div>
-  <div class="kpi"><span>Sobrante</span><b style="color:var(${ing-gas-aho-inv<0?'--gasto':'--ingreso'})">${fmt(ing-gas-aho-inv)}</b></div>`;
+  <div class="kpi"><span>Sobrante</span><b style="color:var(${sob<0?'--gasto':'--ingreso'})">${fmt(sob)}</b></div>`;
   $('saldos').innerHTML=Object.entries(saldos).map(([k,v])=>`<div class="acc${k==='Cartera'?' wide':''}"><span>${k}${k==='Cartera'?' (aportado)':''}</span><b>${fmt(v)} €</b></div>`).join('');
   const L=$('list');L.innerHTML='';let lastDay='';
   const todos=cola.map(m=>Object.assign({pend:true},m)).reverse().concat(datos?datos.ultimos:[]);
