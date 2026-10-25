@@ -1,5 +1,5 @@
 // Guarda la app para que abra sin conexión. Las llamadas a Google siempre van a la red.
-const CACHE = 'finanzas-v7';
+const CACHE = 'finanzas-v8';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'icon.svg', 'icon-192.png', 'icon-512.png'];
 
 self.addEventListener('install', e => {

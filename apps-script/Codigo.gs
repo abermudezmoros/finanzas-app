@@ -89,7 +89,14 @@ function doGet(e) {
   // Configuración para la app: cuentas con su uso, categorías y métodos.
   const config = { cuentas: cuentas.map(c => ({ n: c.n, uso: c.uso, ciclo: c.ciclo, activa: c.activa })), listas: leeListas_(ss) };
 
-  return json_({ ok: true, saldos, mes: { desde, ingresos, gastos, ahorro, inversion }, ultimos, config });
+  const res = { ok: true, saldos, mes: { desde, ingresos, gastos, ahorro, inversion }, ultimos, config };
+  // Para la pestaña Análisis: todos los movimientos, en formato compacto
+  // [fecha, tipo, importe, categoría, descripción, cuenta, destino, método, fila].
+  if (e.parameter.todos) {
+    res.todos = filas.map(r => [Utilities.formatDate(new Date(r[0]), tz, 'yyyy-MM-dd'),
+      r[1], Number(r[2]) || 0, r[3], r[4], r[5], r[6], r[7], r[8]]);
+  }
+  return json_(res);
 }
 
 // Escritura: recibe uno o varios movimientos (la app los manda en cola si no había cobertura).
