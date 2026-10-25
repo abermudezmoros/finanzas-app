@@ -188,7 +188,7 @@ function construirResumen_(ss, sh) {
 
   titulo_(sh, 'B', 'Finanzas personales');
   sh.getRange('B2:G2').merge().setFontColor(C.muted)
-    .setValue('Cada ciclo empieza el día que cobras la nómina en BBVA. Ahorro = traspasos a TR Ahorro. Sobrante = lo que pasa al ciclo siguiente.');
+    .setValue('Cada ciclo empieza el día que cobras la nómina en BBVA. Ahorro = traspasos a TR Ahorro. Del ciclo = ingresos − gastos − ahorro − inversión. Sobrante = lo acumulado que pasa al ciclo siguiente.');
 
   // Ciclos: empiezan en cada Ingreso «Nómina» de BBVA y duran hasta la siguiente (la de Cobee no corta).
   // Solo funciones clásicas (LET/MAP daban error de análisis en esta hoja).
@@ -211,7 +211,8 @@ function construirResumen_(ss, sh) {
       si(suma('Traspaso', w, M('G') + ',"TR Ahorro"') + '-' + suma('Traspaso', w, M('F') + ',"TR Ahorro"')),
       si(suma('Inversión', w)),
       si('C' + r + '-D' + r + '-E' + r + '-F' + r),
-      '=IF(OR($B' + r + '="",C' + r + '=0),"",(E' + r + '+F' + r + ')/C' + r + ')'
+      // Sobrante acumulado: lo que tenías al empezar (BBVA + Trade Republic + Cobee) más el resultado de cada ciclo.
+      si((r === T0 ? 'Cuentas!$C$5+Cuentas!$C$6+Cuentas!$C$8' : 'H' + (r - 1)) + '+G' + r)
     ]);
   }
 
@@ -221,11 +222,12 @@ function construirResumen_(ss, sh) {
   sh.getRange('B5').setFormula(F_(ultimo('B').replace(',0)', ',"")'))).setNumberFormat('mmmm" · desde el "d mmm').setHorizontalAlignment('left').setFontSize(13).setFontWeight('bold');
   sh.getRange('B6').setValue('Tendencia de los últimos ciclos').setFontColor(C.muted).setFontSize(9);
   const tarjetas = [['C', 'INGRESOS', C.tipos['Ingreso'][0]], ['D', 'GASTO REAL', C.tipos['Gasto'][0]],
-    ['E', 'AHORRO', C.tipos['Reembolso'][0]], ['F', 'INVERSIÓN', C.tipos['Inversión'][0]], ['G', 'SOBRANTE', C.navy]];
-  tarjetas.forEach(([col, et, color]) => {
+    ['E', 'AHORRO', C.tipos['Reembolso'][0]], ['F', 'INVERSIÓN', C.tipos['Inversión'][0]], ['G', 'SOBRANTE', C.navy, 'H']];
+  tarjetas.forEach(([col, et, color, origen]) => {
+    const src = origen || col;
     sh.getRange(col + '4').setValue(et).setFontColor(C.muted).setFontSize(9).setFontWeight('bold');
-    sh.getRange(col + '5').setFormula(F_(ultimo(col))).setNumberFormat(EUR0).setFontSize(18).setFontWeight('bold').setFontColor(color);
-    sh.getRange(col + '6').setFormula(F_('=IFERROR(SPARKLINE(FILTER(' + rg(col) + ',' + rg('B') + '<>""),{"charttype","column";"color","' + color + '"}),"")'));
+    sh.getRange(col + '5').setFormula(F_(ultimo(src))).setNumberFormat(EUR0).setFontSize(18).setFontWeight('bold').setFontColor(color);
+    sh.getRange(col + '6').setFormula(F_('=IFERROR(SPARKLINE(FILTER(' + rg(src) + ',' + rg('B') + '<>""),{"charttype","column";"color","' + color + '"}),"")'));
   });
   sh.getRange('B4:G6').setBackground(C.card).setHorizontalAlignment('left');
   sh.getRange('B4:G4').setBorder(true, null, null, null, null, null, C.line, SpreadsheetApp.BorderStyle.SOLID);
@@ -233,19 +235,19 @@ function construirResumen_(ss, sh) {
 
   // Tabla mes a mes
   sh.getRange('B9').setValue('Ciclo a ciclo').setFontSize(13).setFontWeight('bold').setFontColor(C.navy);
-  sh.getRange('B10:H10').setValues([['Ciclo (nómina)', 'Ingresos', 'Gasto real', 'Ahorro', 'Inversión', 'Sobrante', '% ahorro + inv.']]);
+  sh.getRange('B10:H10').setValues([['Ciclo (nómina)', 'Ingresos', 'Gasto real', 'Ahorro', 'Inversión', 'Del ciclo', 'Sobrante']]);
   cabecera_(sh.getRange('B10:H10'));
   sh.setRowHeight(10, 34);
   sh.getRange('B11').setValue('Total');
   ['C', 'D', 'E', 'F', 'G'].forEach(col => sh.getRange(col + '11').setFormula(F_('=SUM(' + rg(col) + ')')));
-  sh.getRange('H11').setFormula(F_('=IF(C11=0,"",(E11+F11)/C11)'));
+  sh.getRange('H11').setFormula(F_(ultimo('H')));
   sh.getRange('B11:H11').setFontWeight('bold').setBackground('#E9E6E0');
   sh.getRange('B' + T0).setFormula(F_('=IFERROR(SORT(UNIQUE(FILTER(Movimientos!$A$2:$A,Movimientos!$B$2:$B="Ingreso",' +
     'Movimientos!$D$2:$D="Nómina",Movimientos!$F$2:$F="BBVA"))),"")'));
   sh.getRange('B' + T0 + ':B' + T1).setNumberFormat('mmmm" · desde el "d mmm').setHorizontalAlignment('left');
   sh.getRange('C' + T0 + ':H' + T1).setFormulas(tabla.map(f => f.map(F_)));
-  sh.getRange('C11:G' + T1).setNumberFormat(EUR);
-  sh.getRange('H11:H' + T1).setNumberFormat('0%');
+  sh.getRange('C11:H' + T1).setNumberFormat(EUR);
+  sh.getRange('G' + T0 + ':G' + T1).setFontColor(C.muted);
   sh.getRange('B' + T0 + ':H' + T1).setBackground(C.card)
     .setBorder(null, null, null, null, null, true, C.line, SpreadsheetApp.BorderStyle.SOLID);
   sh.setRowHeights(11, T1 - 10, 28);
@@ -295,9 +297,9 @@ function construirResumen_(ss, sh) {
   sh.getRange('K' + C0 + ':M' + CL).setNumberFormat(EUR);
   sh.getRange('J' + C0 + ':J' + CL).setFontWeight('bold');
 
-  // Sobrante en verde o rojo
+  // Sobrante acumulado en verde o rojo (solo es rojo si ni con lo arrastrado llegas)
   const rojo = C.tipos['Gasto'][0], verde = C.tipos['Ingreso'][0];
-  const rangos = [sh.getRange('G5'), sh.getRange('G11:G' + T1)];
+  const rangos = [sh.getRange('G5'), sh.getRange('H11:H' + T1)];
   sh.setConditionalFormatRules([
     SpreadsheetApp.newConditionalFormatRule().whenNumberLessThan(0).setFontColor(rojo).setRanges(rangos).build(),
     SpreadsheetApp.newConditionalFormatRule().whenNumberGreaterThan(0).setFontColor(verde).setRanges(rangos).build()
