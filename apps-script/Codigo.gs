@@ -102,7 +102,8 @@ function doGet(e) {
   return json_(res);
 }
 
-// Escritura: recibe uno o varios movimientos (la app los manda en cola si no había cobertura).
+// Escritura: recibe uno o varios movimientos (la app los manda en cola si no había cobertura),
+// o un movimiento que borrar o editar.
 function doPost(e) {
   let body;
   try { body = JSON.parse(e.postData.contents); } catch (err) { return json_({ ok: false, error: 'JSON no válido' }); }
@@ -115,34 +116,52 @@ function doPost(e) {
     const ss = SpreadsheetApp.getActive();
     const hoja = ss.getSheetByName('Movimientos');
 
-    // Borrado: solo si la fila sigue siendo el mismo movimiento que ve la app.
-    if (body.borrar) {
-      const b = body.borrar, fila = Number(b.fila);
-      if (!(fila >= 2) || fila > hoja.getLastRow()) return json_({ ok: false, error: 'No encontrado' });
+    const tz = ss.getSpreadsheetTimeZone();
+    // Borrar o editar: solo si la fila sigue siendo el mismo movimiento que ve la app.
+    const mismaFila_ = b => {
+      const fila = Number(b.fila);
+      if (!(fila >= 2) || fila > hoja.getLastRow()) return 0;
       const r = hoja.getRange(fila, 1, 1, 8).getValues()[0];
-      const mismo = Utilities.formatDate(new Date(r[0]), ss.getSpreadsheetTimeZone(), 'yyyy-MM-dd') === b.f &&
+      const mismo = Utilities.formatDate(new Date(r[0]), tz, 'yyyy-MM-dd') === b.f &&
         r[1] === b.t && Math.abs(Number(r[2]) - Number(b.i)) < 0.005 && String(r[4]) === String(b.d || '');
-      if (!mismo) return json_({ ok: false, error: 'La hoja ha cambiado, actualiza y prueba otra vez' });
+      return mismo ? fila : 0;
+    };
+    const CAMBIADA = 'La hoja ha cambiado, actualiza y prueba otra vez';
+    if (body.borrar) {
+      const fila = mismaFila_(body.borrar);
+      if (!fila) return json_({ ok: false, error: CAMBIADA });
       hoja.deleteRow(fila);
       return json_({ ok: true, borrado: fila });
     }
-    const guardados = [];
     const nombres = leeCuentas_(ss).map(c => c.n);
+    const valido_ = m => TIPOS.indexOf(m.t) >= 0 && nombres.indexOf(m.acc) >= 0 && Number(m.i) > 0 &&
+      /^\d{4}-\d{2}-\d{2}$/.test(String(m.f));
+    // La fecha se crea en la zona horaria de la hoja, para que no cambie de día.
+    const filaDe_ = m => [
+      Utilities.parseDate(String(m.f), tz, 'yyyy-MM-dd'), m.t, Number(m.i), m.t === 'Traspaso' ? '' : (m.cat || ''),
+      m.d || '', m.acc, m.dest || '', m.met || ''
+    ];
+    const formatos_ = fila => {
+      hoja.getRange(fila, 1).setNumberFormat('dd/mm/yyyy');
+      hoja.getRange(fila, 3).setNumberFormat('#,##0.00 "€"');
+    };
+    if (body.editar) {
+      const fila = mismaFila_(body.editar);
+      if (!fila) return json_({ ok: false, error: CAMBIADA });
+      if (!valido_(body.mov || {})) return json_({ ok: false, error: 'Datos no válidos' });
+      hoja.getRange(fila, 1, 1, 8).setValues([filaDe_(body.mov)]);
+      formatos_(fila);
+      return json_({ ok: true, editado: fila });
+    }
+    const guardados = [];
 
     (body.movimientos || []).forEach(m => {
       // Evita duplicados si la app reintenta un envío que ya llegó.
       if (m.id && cache.get(m.id)) { guardados.push(m.id); return; }
-      if (TIPOS.indexOf(m.t) < 0 || nombres.indexOf(m.acc) < 0 || !(Number(m.i) > 0)) return;
-
-      const p = String(m.f).split('-').map(Number);
-      const fecha = new Date(p[0], p[1] - 1, p[2]);
-      hoja.appendRow([
-        fecha, m.t, Number(m.i), m.t === 'Traspaso' ? '' : (m.cat || ''),
-        m.d || '', m.acc, m.dest || '', m.met || ''
-      ]);
+      if (!valido_(m)) return;
+      hoja.appendRow(filaDe_(m));
       const fila = hoja.getLastRow();
-      hoja.getRange(fila, 1).setNumberFormat('dd/mm/yyyy');
-      hoja.getRange(fila, 3).setNumberFormat('#,##0.00 "€"');
+      formatos_(fila);
       if (m.id) cache.put(m.id, '1', 21600);
       guardados.push(m.id || fila);
     });

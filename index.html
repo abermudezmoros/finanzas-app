@@ -164,6 +164,9 @@ header{gap:8px}
 .ms-rows span{color:var(--muted)}.ms-rows b{font-weight:600;text-align:right}
 .danger{margin-top:16px;width:100%;height:52px;border-radius:14px;background:var(--gasto-soft);color:var(--gasto);font-weight:800;font-size:16px}
 .danger.confirm{background:var(--gasto);color:#fff}
+.editbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:6px 0 2px;padding:9px 12px;border-radius:12px;background:var(--cs);color:var(--c);font-weight:700;font-size:14px}
+.editbar button{font-weight:800;color:var(--c);text-decoration:underline}
+.edit{margin-top:16px;width:100%;height:52px;border-radius:14px;background:var(--surface);border:1.5px solid var(--line);color:var(--text);font-weight:800;font-size:16px}
 .ghost{margin-top:8px;width:100%;height:46px;border-radius:14px;font-weight:700;color:var(--muted)}
 .empty-msg{padding:22px 16px;color:var(--muted);font-size:14px;text-align:center}
 /* ---------- Análisis ---------- */
@@ -232,6 +235,7 @@ svg.graf .pto{fill:var(--gasto);stroke:var(--surface);stroke-width:2}
 
   <section id="nuevo">
     <div class="scroll">
+      <div class="editbar" id="editBar" style="display:none"><span>Editando un movimiento</span><button id="editCancel">Cancelar</button></div>
       <div class="tipos" id="tipos"></div>
       <div class="amount" id="amount"><span class="num empty" id="num">0</span><span class="cur">€</span><span class="tap" id="tap"></span></div>
 
@@ -275,7 +279,7 @@ svg.graf .pto{fill:var(--gasto);stroke:var(--surface);stroke-width:2}
     </div>
     <div class="label">Saldos</div>
     <div class="accounts" id="saldos"></div>
-    <div class="label">Últimos movimientos · toca uno para verlo o eliminarlo</div>
+    <div class="label">Últimos movimientos · toca uno para verlo, editarlo o eliminarlo</div>
     <div class="list" id="list"></div>
     <p class="demo" id="hora"></p>
   </section>
@@ -323,6 +327,7 @@ svg.graf .pto{fill:var(--gasto);stroke:var(--surface);stroke-width:2}
   <div class="ms-amt" id="msAmt"></div>
   <div class="ms-tit" id="msTit"></div>
   <div class="ms-rows" id="msRows"></div>
+  <button class="edit" id="msEdit">Editar movimiento</button>
   <button class="danger" id="msDel">Eliminar movimiento</button>
   <button class="ghost" id="msClose">Cerrar</button>
 </div>
@@ -372,6 +377,9 @@ const S={tipo:'Gasto',amt:'',cat:null,acc:null,dest:null,met:'Tarjeta',showAll:f
 const $=id=>document.getElementById(id);
 const fmt=n=>{const [e,d]=Math.abs(n).toFixed(2).split('.');return (n<0?'−':'')+e.replace(/\B(?=(\d{3})+(?!\d))/g,'.')+','+d};
 const today=()=>{const d=new Date();return new Date(d-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
+// La fecha es «hoy» salvo que la cambies a mano. Si la app lleva abierta desde ayer, se pone al día sola.
+let fechaManual=false;
+function fechaHoy(){if(!fechaManual&&$('fecha').value!==today()){$('fecha').value=today();return true}}
 $('fecha').value=today();
 
 // recuerda la última cuenta y método por tipo (solo comodidad local)
@@ -415,10 +423,12 @@ function render(){
   $('accLabel').textContent=T.dest?'Desde':'Cuenta';
   const ac=$('accs');ac.innerHTML='';
   CUENTAS.forEach(a=>ac.appendChild(chip(a,a===S.acc,()=>{S.acc=a;if(S.dest===a)S.dest=CUENTAS.find(x=>x!==a);render()})));
+  if(S.acc&&!CUENTAS.includes(S.acc))ac.appendChild(chip(S.acc,true,()=>{}));
   // destino
   $('destBlock').style.display=S.tipo==='Traspaso'?'block':'none';
   const ds=$('dests');ds.innerHTML='';
   if(S.tipo==='Traspaso')CUENTAS.filter(a=>a!==S.acc).forEach(a=>ds.appendChild(chip(a,a===S.dest,()=>{S.dest=a;render()})));
+  if(S.tipo==='Traspaso'&&S.dest&&!CUENTAS.includes(S.dest))ds.appendChild(chip(S.dest,true,()=>{}));
   // pista
   let h='';
   if(S.tipo==='Inversión')h=`Se mueve de tu cuenta a ${CARTERA}.`;
@@ -434,7 +444,8 @@ function render(){
   const val=parseFloat(S.amt.replace(',','.'))||0;
   const ok=val>0&&(T.cats.length===0||S.cat)&&(S.tipo!=='Traspaso'||S.dest);
   const sv=$('save');sv.disabled=!ok;
-  sv.textContent=ok?`Guardar ${fmt(val)} €`:(val>0?(S.tipo==='Traspaso'?'Elige destino':'Elige una categoría'):'Guardar');
+  $('editBar').style.display=EDIT?'flex':'none';
+  sv.textContent=ok?(EDIT?`Guardar cambios · ${fmt(val)} €`:`Guardar ${fmt(val)} €`):(val>0?(S.tipo==='Traspaso'?'Elige destino':'Elige una categoría'):'Guardar');
 }
 function selectTipo(k){
   S.tipo=k;S.cat=null;S.showAll=false;
@@ -480,7 +491,7 @@ document.addEventListener('keydown',e=>{
 });
 function detalles(abrir){$('details').classList.toggle('open',abrir);$('backdrop').classList.toggle('open',abrir);if(!abrir)document.activeElement.blur()}
 $('detBtn').onclick=()=>detalles(true);$('backdrop').onclick=()=>detalles(false);$('detOk').onclick=()=>detalles(false);
-$('fecha').onchange=render;$('nota').oninput=render;
+$('fecha').onchange=()=>{fechaManual=$('fecha').value!==today();render()};$('nota').oninput=render;
 
 // ---------- Datos y sincronización ----------
 const LS={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},
@@ -492,15 +503,20 @@ const guardaCola=()=>{LS.set('rr-cola',cola);estado()};
 const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 
 let lastSaved=null,timer=null;
+function limpiaForm(){
+  S.amt='';S.cat=null;S.showAll=false;$('nota').value='';fechaManual=false;$('fecha').value=today();detalles(false);$('pad').classList.remove('open');
+}
 $('save').onclick=()=>{
+  fechaHoy();
   const val=parseFloat(S.amt.replace(',','.'));
   let acc=S.acc,dest=S.dest||'';
   if(S.tipo==='Inversión')dest=CARTERA;
   if(S.tipo==='Ingreso'&&S.cat==='Saveback')acc=CARTERA;
   const m={id:uid(),f:$('fecha').value||today(),t:S.tipo,i:val,cat:S.tipo==='Traspaso'?'':S.cat,acc,dest,d:$('nota').value.trim(),met:S.met};
+  if(EDIT)return guardaEdicion(m);
   cola.push(m);guardaCola();lastSaved=m;
   prefs[S.tipo]={acc:S.acc,met:S.met};savePrefs();
-  S.amt='';S.cat=null;S.showAll=false;$('nota').value='';$('fecha').value=today();detalles(false);$('pad').classList.remove('open');
+  limpiaForm();
   render();renderList();
   toast(`${m.t} de ${fmt(val)} € guardado`,true);
   clearTimeout(timer);timer=setTimeout(enviar,4000);   // margen para deshacer antes de enviar
@@ -676,6 +692,52 @@ $('msDel').onclick=async()=>{
     toast(!sigue?'Eliminado de tu hoja':(e.message&&e.message!=='Failed to fetch'?e.message:'No se pudo eliminar, prueba otra vez'));
   }
 };
+
+// ---------- Editar un movimiento ----------
+// Se abre en la pantalla de registro con sus datos. Al guardar, se cambia la misma fila de la hoja.
+let EDIT=null;
+$('msEdit').onclick=()=>{
+  const m=movSel;if(!m)return;
+  if(!m.pend&&!m.fila){toast('Actualiza el script de la hoja para poder editar');return}
+  cerrarMov();editar(m);
+};
+function editar(m){
+  EDIT=m;tab('nuevo');
+  selectTipo(m.t);
+  S.amt=String(+Number(m.i).toFixed(2)).replace('.',',');
+  S.cat=m.cat||null;S.showAll=false;S.met=m.met||S.met;
+  // En Saveback la cuenta es la cartera, que no sale entre las cuentas: se deja la de siempre.
+  if(!(m.t==='Ingreso'&&m.cat==='Saveback'))S.acc=m.acc;
+  if(m.t==='Traspaso')S.dest=m.dest||null;
+  $('fecha').value=m.f;fechaManual=m.f!==today();$('nota').value=m.d||'';
+  detalles(false);$('pad').classList.remove('open');render();
+}
+function salirEdicion(){EDIT=null;limpiaForm();selectTipo(S.tipo)}
+$('editCancel').onclick=()=>{salirEdicion();toast('Edición cancelada')};
+async function guardaEdicion(m){
+  const o=EDIT;
+  // Si aún no se había enviado, se cambia en la cola y listo.
+  if(o.pend){
+    const k=cola.findIndex(x=>x.id===o.id);
+    if(k>=0){m.id=o.id;cola[k]=m;guardaCola()}else cola.push(m),guardaCola();
+    salirEdicion();renderList();toast('Cambios guardados');clearTimeout(timer);timer=setTimeout(enviar,1500);return;
+  }
+  if(!navigator.onLine){toast('Sin conexión: prueba cuando tengas cobertura');return}
+  const sv=$('save');sv.disabled=true;sv.textContent='Guardando cambios…';
+  try{
+    const r=await fetch(cfg.url,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({clave:cfg.clave,editar:{fila:o.fila,f:o.f,t:o.t,i:o.i,d:o.d||''},mov:m})});
+    const j=await r.json();
+    if(!j.ok)throw new Error(j.error);
+    salirEdicion();toast('Cambios guardados en tu hoja');await cargar();
+  }catch(e){
+    // Si la respuesta no llega, comprobamos en la hoja si el cambio se hizo igualmente.
+    const leido=await cargar();
+    const hecho=leido&&datos.todos&&datos.todos.some(x=>x[8]===o.fila&&firma({f:x[0],t:x[1],i:x[2],cat:x[3],d:x[4],acc:x[5]})===firma(m));
+    if(hecho){salirEdicion();toast('Cambios guardados en tu hoja')}
+    else{render();toast(e.message&&e.message!=='Failed to fetch'?e.message:'No se pudo guardar, prueba otra vez')}
+  }
+}
 
 // ---------- Análisis ----------
 // Trabaja con todos los movimientos de la hoja (datos.todos) más los que aún están en cola.
@@ -931,7 +993,7 @@ function temaTxt(){const r=document.documentElement;
   $('temaTxt').textContent=dark?'Oscuro':'Claro'}
 temaTxt();
 addEventListener('online',()=>{enviar();cargar()});addEventListener('offline',()=>estado());
-document.addEventListener('visibilitychange',()=>{if(!document.hidden){cola.length?enviar():cargar()}});
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){if(fechaHoy())render();cola.length?enviar():cargar()}});
 $('sync').onclick=()=>{cola.length?enviar():cargar();toast('Actualizando…')};
 if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 
