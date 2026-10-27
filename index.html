@@ -97,7 +97,8 @@ header{display:flex;align-items:center;justify-content:space-between;padding:14p
 .details .grab{width:40px;height:4px;border-radius:4px;background:var(--line);margin:4px auto 6px}
 .backdrop{position:fixed;inset:0;z-index:19;background:rgba(0,0,0,.35);opacity:0;pointer-events:none;transition:opacity .2s}
 .backdrop.open{opacity:1;pointer-events:auto}
-.field input[type=date]{min-height:48px;-webkit-appearance:none;appearance:none}
+.field input[type=date],.field input[type=time]{min-height:48px;-webkit-appearance:none;appearance:none}
+.fh{display:grid;grid-template-columns:1.6fr 1fr;gap:10px}
 .sync{cursor:pointer}
 .field{display:flex;flex-direction:column;gap:6px;margin-top:12px}
 .field input{font:inherit;font-size:16px;padding:12px 14px;border-radius:12px;border:1.5px solid var(--line);background:var(--surface);color:var(--text);width:100%}
@@ -258,7 +259,8 @@ svg.graf .pto{fill:var(--gasto);stroke:var(--surface);stroke-width:2}
       <div class="backdrop" id="backdrop"></div>
       <div class="details" id="details">
         <div class="grab"></div>
-        <div class="field"><div class="label" style="margin:0 2px">Fecha</div><input type="date" id="fecha"></div>
+        <div class="fh"><div class="field"><div class="label" style="margin:0 2px">Fecha</div><input type="date" id="fecha"></div>
+        <div class="field"><div class="label" style="margin:0 2px">Hora</div><input type="time" id="hora"></div></div>
         <div class="label">Método</div>
         <div class="chips" id="metodos"></div>
         <div class="field"><div class="label" style="margin:0 2px">Descripción</div><input type="text" id="nota" placeholder="Opcional, p. ej. cena con amigos"></div>
@@ -378,8 +380,12 @@ const $=id=>document.getElementById(id);
 const fmt=n=>{const [e,d]=Math.abs(n).toFixed(2).split('.');return (n<0?'−':'')+e.replace(/\B(?=(\d{3})+(?!\d))/g,'.')+','+d};
 const today=()=>{const d=new Date();return new Date(d-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
 // La fecha es «hoy» salvo que la cambies a mano. Si la app lleva abierta desde ayer, se pone al día sola.
-let fechaManual=false;
+let fechaManual=false,horaManual=false;
 function fechaHoy(){if(!fechaManual&&$('fecha').value!==today()){$('fecha').value=today();return true}}
+// La hora es la de ahora salvo que la cambies a mano. Sirve para saber si un gasto fue antes o después de la nómina.
+const ahora=()=>new Date().toTimeString().slice(0,5);
+function horaYa(){if(!horaManual)$('hora').value=ahora()}
+const clave=m=>m.f+' '+(m.h||'00:00');            // fecha y hora, para ordenar y comparar
 $('fecha').value=today();
 
 // recuerda la última cuenta y método por tipo (solo comodidad local)
@@ -439,7 +445,7 @@ function render(){
   const ms=$('metodos');ms.innerHTML='';
   METODOS.forEach(m=>ms.appendChild(chip(m,m===S.met,()=>{S.met=m;render()})));
   const f=$('fecha').value;
-  $('detSum').textContent=(f===today()?'Hoy':new Date(f+'T12:00').toLocaleDateString('es-ES',{day:'numeric',month:'short'}))+' · '+S.met+($('nota').value?' · nota':'');
+  $('detSum').textContent=(f===today()?'Hoy':new Date(f+'T12:00').toLocaleDateString('es-ES',{day:'numeric',month:'short'}))+(horaManual&&$('hora').value?' '+$('hora').value:'')+' · '+S.met+($('nota').value?' · nota':'');
   // guardar
   const val=parseFloat(S.amt.replace(',','.'))||0;
   const ok=val>0&&(T.cats.length===0||S.cat)&&(S.tipo!=='Traspaso'||S.dest);
@@ -490,8 +496,8 @@ document.addEventListener('keydown',e=>{
   else if(e.key==='Enter'&&!$('save').disabled)$('save').click();
 });
 function detalles(abrir){$('details').classList.toggle('open',abrir);$('backdrop').classList.toggle('open',abrir);if(!abrir)document.activeElement.blur()}
-$('detBtn').onclick=()=>detalles(true);$('backdrop').onclick=()=>detalles(false);$('detOk').onclick=()=>detalles(false);
-$('fecha').onchange=()=>{fechaManual=$('fecha').value!==today();render()};$('nota').oninput=render;
+$('detBtn').onclick=()=>{horaYa();detalles(true)};$('backdrop').onclick=()=>detalles(false);$('detOk').onclick=()=>detalles(false);
+$('fecha').onchange=()=>{fechaManual=$('fecha').value!==today();render()};$('hora').onchange=()=>{horaManual=true;render()};$('nota').oninput=render;
 
 // ---------- Datos y sincronización ----------
 const LS={get(k,d){try{const v=localStorage.getItem(k);return v==null?d:JSON.parse(v)}catch(e){return d}},
@@ -504,15 +510,15 @@ const uid=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,8);
 
 let lastSaved=null,timer=null;
 function limpiaForm(){
-  S.amt='';S.cat=null;S.showAll=false;$('nota').value='';fechaManual=false;$('fecha').value=today();detalles(false);$('pad').classList.remove('open');
+  S.amt='';S.cat=null;S.showAll=false;$('nota').value='';fechaManual=false;horaManual=false;$('fecha').value=today();$('hora').value='';detalles(false);$('pad').classList.remove('open');
 }
 $('save').onclick=()=>{
-  fechaHoy();
+  fechaHoy();horaYa();
   const val=parseFloat(S.amt.replace(',','.'));
   let acc=S.acc,dest=S.dest||'';
   if(S.tipo==='Inversión')dest=CARTERA;
   if(S.tipo==='Ingreso'&&S.cat==='Saveback')acc=CARTERA;
-  const m={id:uid(),f:$('fecha').value||today(),t:S.tipo,i:val,cat:S.tipo==='Traspaso'?'':S.cat,acc,dest,d:$('nota').value.trim(),met:S.met};
+  const m={id:uid(),f:$('fecha').value||today(),h:$('hora').value||'',t:S.tipo,i:val,cat:S.tipo==='Traspaso'?'':S.cat,acc,dest,d:$('nota').value.trim(),met:S.met};
   if(EDIT)return guardaEdicion(m);
   cola.push(m);guardaCola();lastSaved=m;
   prefs[S.tipo]={acc:S.acc,met:S.met};savePrefs();
@@ -591,10 +597,10 @@ function renderList(){
   let desde=datos&&datos.mes&&datos.mes.desde;
   // Si la nómina nueva (de una cuenta que abre ciclo) aún está en cola, el ciclo nuevo empieza con ella.
   const abre=CTAS.filter(c=>c.ciclo).map(c=>c.n);
-  const nueva=cola.filter(m=>m.t==='Ingreso'&&m.cat==='Nómina'&&abre.includes(m.acc)).map(m=>m.f).sort().pop();
+  const nueva=cola.filter(m=>m.t==='Ingreso'&&m.cat==='Nómina'&&abre.includes(m.acc)).map(clave).sort().pop();
   const reinicio=nueva&&(!desde||nueva>desde);
   if(reinicio)desde=nueva;
-  $('mesTit').textContent=desde?'Ciclo desde el '+new Date(desde+'T12:00').toLocaleDateString('es-ES',{day:'numeric',month:'long'}):'Ciclo actual';
+  $('mesTit').textContent=desde?'Ciclo desde el '+new Date(desde.slice(0,10)+'T12:00').toLocaleDateString('es-ES',{day:'numeric',month:'long'}):'Ciclo actual';
   if(!datos&&!cola.length){
     $('kpis').innerHTML='';$('saldos').innerHTML='';
     $('list').innerHTML=`<div class="empty-msg">${cfg.url?'Cargando datos de tu hoja…':'Conecta la app con tu hoja en Ajustes.'}</div>`;
@@ -606,7 +612,7 @@ function renderList(){
   if(!reinicio){ing=mes.ingresos||0;gas=mes.gastos||0;aho=mes.inversion!=null?(mes.ahorro||0):0;inv=mes.inversion||0}
   cola.forEach(m=>{
     delta(m,1,saldos);
-    if(desde&&m.f<desde)return;
+    if(desde&&clave(m)<desde)return;
     if(m.t==='Ingreso'&&usoDe(m.acc)!=='Inversión')ing+=m.i;
     if(m.t==='Gasto')gas+=m.i;
     if(m.t==='Reembolso')gas-=m.i;
@@ -628,7 +634,7 @@ function renderList(){
   });
   const L=$('list');L.innerHTML='';
   const todos=cola.map(m=>Object.assign({pend:true},m)).reverse().concat(datos?datos.ultimos:[]);
-  pintaMovs(L,todos.slice().sort((a,b)=>b.f.localeCompare(a.f)).slice(0,25));
+  pintaMovs(L,todos.slice().sort((a,b)=>clave(b).localeCompare(clave(a))).slice(0,25));
   $('hora').textContent=datos?'Actualizado '+new Date(datos.hora).toLocaleString('es-ES',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'';
 }
 
@@ -661,7 +667,7 @@ function abrirMov(m){
   const sign=m.t==='Gasto'?'−':(m.t==='Ingreso'||m.t==='Reembolso')?'+':'';
   $('msAmt').textContent=`${sign}${fmt(m.i)} €`;
   $('msTit').textContent=m.t==='Traspaso'?`${m.acc} → ${m.dest}`:(m.cat||m.t);
-  const filas=[['Tipo',m.t],['Fecha',new Date(m.f+'T12:00').toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'})],
+  const filas=[['Tipo',m.t],['Fecha',new Date(m.f+'T12:00').toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'})+(m.h?' · '+m.h:'')],
     [m.t==='Traspaso'||m.t==='Inversión'?'Desde':'Cuenta',m.acc],m.dest?['Hacia',m.dest]:null,['Método',m.met],['Descripción',m.d],
     m.pend?['Estado','Pendiente de enviar']:null].filter(x=>x&&x[1]);
   const R=$('msRows');R.innerHTML='';
@@ -709,7 +715,7 @@ function editar(m){
   // En Saveback la cuenta es la cartera, que no sale entre las cuentas: se deja la de siempre.
   if(!(m.t==='Ingreso'&&m.cat==='Saveback'))S.acc=m.acc;
   if(m.t==='Traspaso')S.dest=m.dest||null;
-  $('fecha').value=m.f;fechaManual=m.f!==today();$('nota').value=m.d||'';
+  $('fecha').value=m.f;fechaManual=m.f!==today();$('hora').value=m.h||'';horaManual=true;$('nota').value=m.d||'';
   detalles(false);$('pad').classList.remove('open');render();
 }
 function salirEdicion(){EDIT=null;limpiaForm();selectTipo(S.tipo)}
@@ -744,29 +750,29 @@ async function guardaEdicion(m){
 const A={per:'ciclo',off:0,tipo:'',cat:'',acc:'',met:'',q:'',max:60};
 const PERIODOS={semana:'Semana',ciclo:'Ciclo',mes:'Mes',anio:'Año'};
 const MESES=['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
-const dU=f=>{const [y,m,d]=f.split('-').map(Number);return Date.UTC(y,m-1,d)};       // fecha → ms (UTC)
+const dU=f=>{const [y,m,d]=f.slice(0,10).split('-').map(Number);return Date.UTC(y,m-1,d)};       // fecha → ms (UTC)
 const fU=t=>new Date(t).toISOString().slice(0,10);                                    // ms → fecha
 const DIA=864e5;
-const corta=f=>new Date(f+'T12:00').toLocaleDateString('es-ES',{day:'numeric',month:'short'});
+const corta=f=>new Date(f.slice(0,10)+'T12:00').toLocaleDateString('es-ES',{day:'numeric',month:'short'});
 const sinAcentos=t=>String(t||'').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'');
 
 function movsAnalisis(){
-  const hoja=((datos&&datos.todos)||[]).map(r=>({f:r[0],t:r[1],i:Number(r[2])||0,cat:r[3]||'',d:r[4]||'',acc:r[5]||'',dest:r[6]||'',met:r[7]||'',fila:r[8]}));
+  const hoja=((datos&&datos.todos)||[]).map(r=>({f:r[0],t:r[1],i:Number(r[2])||0,cat:r[3]||'',d:r[4]||'',acc:r[5]||'',dest:r[6]||'',met:r[7]||'',fila:r[8],h:r[9]||''}));
   return hoja.concat(cola.map(m=>Object.assign({pend:true},m)));
 }
 function iniciosCiclo(movs){
   const abre=CTAS.filter(c=>c.ciclo).map(c=>c.n);
-  return [...new Set(movs.filter(m=>m.t==='Ingreso'&&m.cat==='Nómina'&&abre.includes(m.acc)).map(m=>m.f))].sort();
+  return [...new Set(movs.filter(m=>m.t==='Ingreso'&&m.cat==='Nómina'&&abre.includes(m.acc)).map(clave))].sort();
 }
 // Devuelve {desde, hasta (sin incluir), tit, sub} del periodo desplazado «off» respecto al actual, o null si no existe.
 function rango(per,off,inicios){
   const hoy=dU(today()),d=new Date(hoy);
   if(per==='ciclo'){
     if(!inicios.length)return null;
-    let k=-1;inicios.forEach((f,i)=>{if(f<=today())k=i});
+    let k=-1;inicios.forEach((f,i)=>{if(f.slice(0,10)<=today())k=i});
     k+=off;if(k<0||k>=inicios.length)return null;
     const desde=inicios[k],hasta=inicios[k+1]||null,mm=Number(desde.slice(5,7))-1;
-    return {desde,hasta,tit:'Ciclo de '+MESES[mm],sub:corta(desde)+' – '+(hasta?corta(fU(dU(hasta)-DIA)):'hoy')};
+    return {desde,hasta,tit:'Ciclo de '+MESES[mm],sub:corta(desde)+' – '+(hasta?corta(hasta.endsWith('00:00')?fU(dU(hasta)-DIA):hasta):'hoy')};   // si la nómina llegó a media tarde, ese día se reparte
   }
   if(per==='semana'){
     const lunes=hoy-((d.getUTCDay()+6)%7)*DIA+off*7*DIA;
@@ -780,7 +786,7 @@ function rango(per,off,inicios){
   const y=d.getUTCFullYear()+off;
   return {desde:y+'-01-01',hasta:(y+1)+'-01-01',tit:'Año '+y,sub:'1 ene – 31 dic'};
 }
-const dentro=(m,r)=>m.f>=r.desde&&(!r.hasta||m.f<r.hasta);
+const dentro=(m,r)=>clave(m)>=r.desde&&(!r.hasta||clave(m)<r.hasta);
 function pasaFiltros(m){
   if(A.tipo&&m.t!==A.tipo)return false;
   if(A.cat&&m.cat!==A.cat)return false;
@@ -835,7 +841,7 @@ function analiza(){
   let r=rango(per,A.off,ini);
   if(!r){A.off=0;r=rango(per,0,ini)}
   // Sin periodo anterior si cae antes del primer movimiento apuntado.
-  const primero=movs.reduce((a,m)=>m.f<a?m.f:a,'9999');
+  const primero=movs.reduce((a,m)=>clave(m)<a?clave(m):a,'9999');
   let rAnt=rango(per,A.off-1,ini);if(rAnt&&rAnt.hasta&&rAnt.hasta<=primero)rAnt=null;
   $('aTit').textContent=r.tit;$('aSub').textContent=r.sub;
   $('aPrev').disabled=!rAnt;$('aNext').disabled=A.off>=0;
@@ -879,7 +885,7 @@ function analiza(){
   ritmo(per,r,rAnt,act,ant);
 
   // Movimientos
-  const lista=act.slice().sort((a,b)=>b.f.localeCompare(a.f)||(b.fila||0)-(a.fila||0));
+  const lista=act.slice().sort((a,b)=>clave(b).localeCompare(clave(a))||(b.fila||0)-(a.fila||0));
   $('aLTit').textContent=lista.length+' movimiento'+(lista.length===1?'':'s')+' en el periodo';
   const L=$('aList');L.innerHTML='';
   if(!lista.length)L.innerHTML='<div class="empty-msg">No hay movimientos con estos filtros.</div>';

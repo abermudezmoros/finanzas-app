@@ -18,6 +18,7 @@ const C = {
 const FUENTE = 'Manrope';
 const EUR = '#,##0.00 "€"';
 const EUR0 = '#,##0 "€"';
+const FECHA_HORA = 'dd mmm yyyy"  "hh:mm';
 const GASTOS_POR_DEFECTO = ['Restaurantes', 'Supermercado', 'Ocio', 'Deporte', 'Salud', 'Cuidado personal', 'Coche y moto',
   'Viajes', 'Suscripciones', 'Compras y hogar', 'Regalos', 'Vivienda', 'Formación', 'Impuestos', 'Otros'];
 
@@ -142,12 +143,15 @@ function disenoMovimientos_(sh) {
   const datos = sh.getRange(2, 1, N - 1, 8);
   sh.setRowHeights(2, N - 1, 28);
   datos.setBorder(null, null, null, null, null, true, '#FFFFFF', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
-  sh.getRange(2, 1, N - 1, 1).setNumberFormat('dd mmm yyyy');
+  // Fecha, y la hora solo en las filas que la tienen (lo que se apunta desde la app).
+  const fechas = sh.getRange(2, 1, N - 1, 1), tz = ss.getSpreadsheetTimeZone();
+  fechas.setNumberFormats(fechas.getValues().map(([v]) =>
+    [v instanceof Date && Utilities.formatDate(v, tz, 'HH:mm') !== '00:00' ? FECHA_HORA : 'dd mmm yyyy']));
   sh.getRange(2, 3, N - 1, 1).setNumberFormat(EUR).setHorizontalAlignment('right').setFontWeight('bold');
   sh.getRange(2, 2, N - 1, 1).setFontWeight('bold');
   sh.getRange(2, 6, N - 1, 3).setFontColor(C.muted);
 
-  [110, 105, 110, 150, 360, 130, 130, 115].forEach((w, i) => sh.setColumnWidth(i + 1, w));
+  [140, 105, 110, 150, 360, 130, 130, 115].forEach((w, i) => sh.setColumnWidth(i + 1, w));
 
   // Colores por tipo: Tipo e Importe con su color fuerte, la fila con el suave.
   const reglas = [];

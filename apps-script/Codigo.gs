@@ -82,10 +82,13 @@ function doGet(e) {
     if (r[1] === 'Traspaso' && uso[r[5]] === 'Ahorro') ahorro -= imp;
     if (r[1] === 'Inversión') inversion += imp;
   });
-  const desde = inicio ? Utilities.formatDate(inicio, tz, 'yyyy-MM-dd') : '';
+  // Inicio del ciclo con su hora: lo apuntado ese día antes de la nómina es del ciclo anterior.
+  const desde = inicio ? Utilities.formatDate(inicio, tz, 'yyyy-MM-dd HH:mm') : '';
 
+  // Hora del movimiento ('' si no tiene: las filas antiguas o escritas a mano solo llevan el día).
+  const hora = v => { const h = Utilities.formatDate(new Date(v), tz, 'HH:mm'); return h === '00:00' ? '' : h; };
   const ultimos = filas.slice(-20).reverse().map(r => ({
-    f: Utilities.formatDate(new Date(r[0]), tz, 'yyyy-MM-dd'),
+    f: Utilities.formatDate(new Date(r[0]), tz, 'yyyy-MM-dd'), h: hora(r[0]),
     t: r[1], i: Number(r[2]), cat: r[3], d: r[4], acc: r[5], dest: r[6], met: r[7], fila: r[8]
   }));
 
@@ -94,10 +97,10 @@ function doGet(e) {
 
   const res = { ok: true, saldos, mes: { desde, ingresos, gastos, ahorro, inversion }, ultimos, config };
   // Para la pestaña Análisis: todos los movimientos, en formato compacto
-  // [fecha, tipo, importe, categoría, descripción, cuenta, destino, método, fila].
+  // [fecha, tipo, importe, categoría, descripción, cuenta, destino, método, fila, hora].
   if (e.parameter.todos) {
     res.todos = filas.map(r => [Utilities.formatDate(new Date(r[0]), tz, 'yyyy-MM-dd'),
-      r[1], Number(r[2]) || 0, r[3], r[4], r[5], r[6], r[7], r[8]]);
+      r[1], Number(r[2]) || 0, r[3], r[4], r[5], r[6], r[7], r[8], hora(r[0])]);
   }
   return json_(res);
 }
@@ -136,13 +139,14 @@ function doPost(e) {
     const nombres = leeCuentas_(ss).map(c => c.n);
     const valido_ = m => TIPOS.indexOf(m.t) >= 0 && nombres.indexOf(m.acc) >= 0 && Number(m.i) > 0 &&
       /^\d{4}-\d{2}-\d{2}$/.test(String(m.f));
-    // La fecha se crea en la zona horaria de la hoja, para que no cambie de día.
+    // La fecha (y la hora, si la trae) se crea en la zona horaria de la hoja, para que no cambie de día.
+    const conHora_ = m => /^\d{2}:\d{2}$/.test(String(m.h || ''));
     const filaDe_ = m => [
-      Utilities.parseDate(String(m.f), tz, 'yyyy-MM-dd'), m.t, Number(m.i), m.t === 'Traspaso' ? '' : (m.cat || ''),
+      conHora_(m) ? Utilities.parseDate(m.f + ' ' + m.h, tz, 'yyyy-MM-dd HH:mm') : Utilities.parseDate(String(m.f), tz, 'yyyy-MM-dd'), m.t, Number(m.i), m.t === 'Traspaso' ? '' : (m.cat || ''),
       m.d || '', m.acc, m.dest || '', m.met || ''
     ];
-    const formatos_ = fila => {
-      hoja.getRange(fila, 1).setNumberFormat('dd/mm/yyyy');
+    const formatos_ = (fila, m) => {
+      hoja.getRange(fila, 1).setNumberFormat(conHora_(m) ? FECHA_HORA : 'dd mmm yyyy');
       hoja.getRange(fila, 3).setNumberFormat('#,##0.00 "€"');
     };
     if (body.editar) {
@@ -150,7 +154,7 @@ function doPost(e) {
       if (!fila) return json_({ ok: false, error: CAMBIADA });
       if (!valido_(body.mov || {})) return json_({ ok: false, error: 'Datos no válidos' });
       hoja.getRange(fila, 1, 1, 8).setValues([filaDe_(body.mov)]);
-      formatos_(fila);
+      formatos_(fila, body.mov);
       return json_({ ok: true, editado: fila });
     }
     const guardados = [];
@@ -161,7 +165,7 @@ function doPost(e) {
       if (!valido_(m)) return;
       hoja.appendRow(filaDe_(m));
       const fila = hoja.getLastRow();
-      formatos_(fila);
+      formatos_(fila, m);
       if (m.id) cache.put(m.id, '1', 21600);
       guardados.push(m.id || fila);
     });
