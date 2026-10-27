@@ -144,7 +144,7 @@ function disenoMovimientos_(sh) {
   sh.setRowHeights(2, N - 1, 28);
   datos.setBorder(null, null, null, null, null, true, '#FFFFFF', SpreadsheetApp.BorderStyle.SOLID_MEDIUM);
   // Fecha, y la hora solo en las filas que la tienen (lo que se apunta desde la app).
-  const fechas = sh.getRange(2, 1, N - 1, 1), tz = ss.getSpreadsheetTimeZone();
+  const fechas = sh.getRange(2, 1, N - 1, 1), tz = sh.getParent().getSpreadsheetTimeZone();
   fechas.setNumberFormats(fechas.getValues().map(([v]) =>
     [v instanceof Date && Utilities.formatDate(v, tz, 'HH:mm') !== '00:00' ? FECHA_HORA : 'dd mmm yyyy']));
   sh.getRange(2, 3, N - 1, 1).setNumberFormat(EUR).setHorizontalAlignment('right').setFontWeight('bold');
