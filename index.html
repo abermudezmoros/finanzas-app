@@ -739,7 +739,7 @@ async function guardaEdicion(m){
   }catch(e){
     // Si la respuesta no llega, comprobamos en la hoja si el cambio se hizo igualmente.
     const leido=await cargar();
-    const hecho=leido&&datos.todos&&datos.todos.some(x=>x[8]===o.fila&&firma({f:x[0],t:x[1],i:x[2],cat:x[3],d:x[4],acc:x[5]})===firma(m));
+    const hecho=leido&&datos.todos&&datos.todos.some(x=>firma({f:x[0],t:x[1],i:x[2],cat:x[3],d:x[4],acc:x[5]})===firma(m));
     if(hecho){salirEdicion();toast('Cambios guardados en tu hoja')}
     else{render();toast(e.message&&e.message!=='Failed to fetch'?e.message:'No se pudo guardar, prueba otra vez')}
   }

@@ -129,8 +129,19 @@ function columnas_(sh, n) {
 }
 
 // ---------- Movimientos ----------
+// Ordena Movimientos por fecha y hora. Un movimiento programado para el futuro se queda en su sitio
+// aunque se apunten otros después; dentro de la misma fecha y hora se respeta el orden en que se apuntaron.
+function ordenaMovimientos_(sh) {
+  const n = sh.getLastRow() - 1;
+  if (n < 2) return;
+  const filtro = sh.getFilter();
+  if (filtro) filtro.sort(1, true);
+  else sh.getRange(2, 1, n, 8).sort({ column: 1, ascending: true });
+}
+
 function disenoMovimientos_(sh) {
   const N = 3000;
+  ordenaMovimientos_(sh);
   filas_(sh, N);
   base_(sh, '#FFFFFF');
   sh.setTabColor(C.navy);

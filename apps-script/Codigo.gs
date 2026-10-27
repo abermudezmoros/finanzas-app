@@ -155,6 +155,7 @@ function doPost(e) {
       if (!valido_(body.mov || {})) return json_({ ok: false, error: 'Datos no válidos' });
       hoja.getRange(fila, 1, 1, 8).setValues([filaDe_(body.mov)]);
       formatos_(fila, body.mov);
+      ordenaMovimientos_(hoja);
       return json_({ ok: true, editado: fila });
     }
     const guardados = [];
@@ -170,6 +171,7 @@ function doPost(e) {
       guardados.push(m.id || fila);
     });
 
+    if (guardados.length) ordenaMovimientos_(hoja);
     return json_({ ok: true, guardados });
   } finally {
     lock.releaseLock();
