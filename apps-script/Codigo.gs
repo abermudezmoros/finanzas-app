@@ -192,13 +192,10 @@ function claveOCrea_() {
   return clave;
 }
 
-// URL de la aplicación web publicada (acaba en /exec): la que pegó el usuario o, si no, la que da Google.
+// URL de la aplicación web publicada (acaba en /exec), tal como la pegó el usuario.
+// No se usa ScriptApp.getService().getUrl(): en una hoja copiada de la plantilla devolvía una URL que no funcionaba.
 function urlApp_() {
-  const pegada = PropertiesService.getScriptProperties().getProperty('URL_APP');
-  if (pegada) return pegada;
-  let url = '';
-  try { url = ScriptApp.getService().getUrl() || ''; } catch (e) {}
-  return /^https:\/\/script\.google\.com\/.+\/exec$/.test(url) ? url : '';
+  return PropertiesService.getScriptProperties().getProperty('URL_APP') || '';
 }
 
 function conectarMovil() {
@@ -259,14 +256,16 @@ const DIALOGO_CONECTAR = `<!doctype html>
     function cambiar() { google.script.run.withSuccessHandler(function(){ google.script.run.conectarMovil(); }).olvidarUrlApp(); }
   </script>
 <? } else { ?>
-  <h3>Antes hay que publicar la hoja (solo una vez)</h3>
+  <h3>Pega la URL de tu aplicación web</h3>
+  <p>Si aún no has publicado la hoja, hazlo así (solo una vez):</p>
   <ol>
     <li>Menú <b>Extensiones &gt; Apps Script</b>. Se abre otra pestaña.</li>
     <li>Arriba a la derecha, botón azul <b>Implementar &gt; Nueva implementación</b>.</li>
     <li>Junto a «Seleccionar tipo», pulsa la rueda ⚙ y elige <b>Aplicación web</b>.</li>
     <li>En «Quién tiene acceso» elige <b>Cualquier usuario</b>. Lo demás, tal cual.</li>
     <li>Pulsa <b>Implementar</b>. Si pide permisos: <b>Autorizar acceso</b> &gt; tu cuenta &gt; <b>Configuración avanzada</b> &gt; <b>Ir a…</b> &gt; <b>Permitir</b>.</li>
-    <li>Debajo de «Aplicación web» verás una URL: pulsa <b>Copiar</b> y pégala aquí:</li>
+    <li>Debajo de «Aplicación web» verás una URL que termina en <b>/exec</b>: pulsa <b>Copiar</b> y pégala aquí.
+      (Si ya la habías publicado, la URL está en <b>Implementar &gt; Gestionar implementaciones</b>.)</li>
   </ol>
   <input id="u" placeholder="https://script.google.com/macros/s/…/exec">
   <button onclick="guardar()">Continuar</button> <span id="err" class="gris"></span>
